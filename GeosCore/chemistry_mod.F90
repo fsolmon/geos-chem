@@ -94,7 +94,9 @@ CONTAINS
 #ifdef TOMAS
     USE TOMAS_MOD,        ONLY : DO_TOMAS  !(win, 7/14/09)
 #endif
-
+!FAB#ifdef MAM
+    USE MAM_DRIV_MOD,       ONLY : MAM_DRIV
+!#endif
 !
 ! !INPUT PARAMETERS:
 !
@@ -627,7 +629,6 @@ CONTAINS
              RETURN
           ENDIF
 #endif
-
 #ifdef TOMAS
           !------------------------------------------------------------------
           ! Do TOMAS aerosol microphysics and dry dep
@@ -654,7 +655,15 @@ CONTAINS
              ENDIF
           ENDIF
 #endif
+!FAB#ifdef MAM
+          CALL MAM_DRIV( Input_Opt  = Input_Opt,                             &
+                         State_Chm  = State_Chm,                             &
+                         State_Diag = State_Diag,                            &
+                         State_Grid = State_Grid,                            &
+                         State_Met  = State_Met,                             &
+                         RC         = RC                                    )
 
+!#endif
           IF ( Input_Opt%useTimers ) THEN
              CALL Timer_End( "=> Aerosol chem", RC )
           ENDIF

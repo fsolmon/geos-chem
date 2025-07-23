@@ -52,6 +52,7 @@ add_library(GeosCore
   land_mercury_mod.F90
   linear_chem_mod.F90
   linoz_mod.F90
+  mam_driv_mod.F90
   mapping_mod.F90
   mercury_mod.F90
   mixing_mod.F90
@@ -110,5 +111,5 @@ target_link_libraries(GeosCore PUBLIC
   $<$<BOOL:${APM}>:APM>       # depends on APM iff APM is true
   $<$<BOOL:${RRTMG}>:GeosRad> # depends on GeosRad iff RRTMG is true
   $<$<BOOL:${GTMM}>:Hg>       # depends on Hg iff GTMM is true
-
+  MAM
 )

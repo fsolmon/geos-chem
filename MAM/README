@@ -1,0 +1,43 @@
+Hi 
+
+Je prends le parti de rapartir depuis la box model , tout en controlant la version Sharma qui a fait un travail dintegrationet d' epuration qdont je peux suivre parfois l'example. Pourquoi ?
+Car la box model tourne et pourra servir de benchmark ( test une maille de geos). 
+
+Modifs apportees au code par rapport a la box_model 
+
+shr_kind est remplace pare precision_mod de GC
+
+les constantes physiques sont regroupees au sein d'un seul module phyconst. mo_const n'est plus utilise
+
+
+je groupe ausso tous les modules utilitaires qui viennent du contexte hote ( par ex cam) dans un seul module mam_utils.F90 : ce module sera temporaire ou utile pour developper une interface de controle plus avancee avec GC 
+
+pm_grid
+pp_grid
+cam_history
+cam_logfile
+mo_chem_utls
+mo_trac_name
+spmd_utils
+ref_pres
+units
+time_manager
+shr_spfn_mod , faire gaffe a celui la c'est pour les fonctions erf 
+error_function.F90
+dyn_grid
+seasalt_model.F90
+aerodep_flx
+abortutils
+cam_abortutils
+
+
+saturation : au lieu de recalculer RH a partir des fonctions saturations wv_saturation.F90 , jeutres routines appellees par ,  passe directement le RH aui vient du state meteo  de GC . Cela impose une petite modif de l'interface de certaines routines. 
+
+chem_mods et toutes les routines phys et buffer sont a priori importantes et je les compile individuellement
+
+je n'ai a priori pas besoin des routine appellees par le driver de la box mod seule , telles que cloud chem
+
+les modules rad sont aussi comples indivi car ce sont des proprietes et pas des ultis reflechir a ca...
+
+ 
+

@@ -420,6 +420,8 @@ CONTAINS
     USE Tagged_O3_Mod,      ONLY : Init_Tagged_O3
     USE Vdiff_Mod,          ONLY : Init_Vdiff
     USE WetScav_Mod,        ONLY : Init_WetScav
+!FAB 
+    USE MAM_DRIV_MOD,       ONLY : MAM_INIT
 !
 ! !INPUT PARAMETERS:
 !
@@ -617,6 +619,17 @@ CONTAINS
           RETURN
        ENDIF
     ENDIF
+
+! FAB MAM initialization , to be refined if ifdef / flags 
+    IF ( Input_Opt%ITS_A_FULLCHEM_SIM  ) THEN
+       CALL MAM_INIT( Input_Opt, State_Chm, State_Diag, State_Grid, RC )
+       IF ( RC /= GC_SUCCESS ) THEN
+          ErrMsg = 'Error encountered in "MAM_init"!'
+          CALL GC_Error( ErrMsg, RC, ThisLoc )
+          RETURN
+       ENDIF
+    ENDIF
+
 
     !=================================================================
     ! Initialize simulation modules here

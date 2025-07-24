@@ -10,7 +10,7 @@
 
 !      use abortutils, only:  endrun
 !      use cam_logfile, only:  iulog
-      use mam_utils, only :endrun, iulog
+!      use mam_utils, only :endrun, iulog
       implicit none
 
       public
@@ -57,9 +57,10 @@
     if ( present(abort) ) abort_on_error = abort
 
     if ( abort_on_error ) then
-       write(iulog,*) 'CNST_GET_IND, name:', name, &
+       write(*,*) 'CNST_GET_IND, name:', name, &
                       ' not found in list:', cnst_name(:)
-       call endrun('CNST_GET_IND: name not found')
+       stop
+              !       call endrun('CNST_GET_IND: name not found')
     end if
 
 ! error return

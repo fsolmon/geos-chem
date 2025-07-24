@@ -51,6 +51,7 @@ add_subdirectory(ObsPack)
 add_subdirectory(APM)
 add_subdirectory(GeosRad)
 add_subdirectory(GTMM)
+add_subdirectory(MAM)
 add_subdirectory(GeosCore)
 
 #-----------------------------------------------------------------------------

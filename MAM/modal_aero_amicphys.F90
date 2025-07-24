@@ -5263,8 +5263,8 @@ agepair_loop1: &
             qaer_del_coag(iaer,ntoo) = qaer_del_coag(iaer,ntoo) &
                                      + qaer_del_coag(iaer,nfrm)
 !if (iaer == 1) print *, 'soa transfer from Primary carbon mode (coagulated from Aitken mode) to Accumulation mode due to aging: ', qaer_del_coag(iaer,nfrm)
-if (iaer == 2) print *, 'so4 transfer from Primary carbon mode (coagulated from Aitken mode) to Accumulation mode due to aging: ', qaer_del_coag(iaer,nfrm)
-if (iaer == 2) print *, 'so4 transfer from Primary carbon mode (condensed H2SO4) to Accumulation mode due to aging: ', qaer_del_coag(iaer,nfrm)
+!if (iaer == 2) print *, 'so4 transfer from Primary carbon mode (coagulated from Aitken mode) to Accumulation mode due to aging: ', qaer_del_coag(iaer,nfrm)
+!if (iaer == 2) print *, 'so4 transfer from Primary carbon mode (condensed H2SO4) to Accumulation mode due to aging: ', qaer_del_coag(iaer,nfrm)
             qaer_cur(iaer,nfrm)      = 0.0_r8
             qaer_del_cond(iaer,nfrm) = 0.0_r8
             qaer_del_coag(iaer,nfrm) = 0.0_r8

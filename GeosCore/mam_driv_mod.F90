@@ -234,8 +234,8 @@ call load_pbuf( pbuf, lchnk, pcols, &
       vmrcw = 0.0_r8
       do l = imozart, pcnst
          l2 = l - loffset
-         vmr(  1:pcols,1:pver,l2) =physta%q(  1:pcols,1:pver,l2)*mwdry/adv_mass(l2)
-         vmrcw(1:pcols,1:pver,l2) =physta%qqcw(1:pcols,1:pver,l2)*mwdry/adv_mass(l2)
+         vmr(  1:pcols,1:pver,l2) =physta%q(  1:pcols,1:pver,l)*mwdry/adv_mass(l2)
+         vmrcw(1:pcols,1:pver,l2) =physta%qqcw(1:pcols,1:pver,l)*mwdry/adv_mass(l2)
       end do
 !-------------------------------
 ! GASCHEM 
@@ -259,15 +259,21 @@ call load_pbuf( pbuf, lchnk, pcols, &
 !CLOUDCHEM modifies vmr and vmrcw.I skip for now,  question :  are cloud born aerosol also transported or
 !can they be considered as diag variables  
       
+IF(masterproc) THEN
+      
+
+      print*, 'vmr avant ', vmr(10,2,:)
+
+    END IF
  
 ! call the mam microphysics driver  
 !------------------------------
   nstep = 1 ! improve later
-  if(.true.) then ! .and. masterproc ) then
+  if(1==1) then ! .and. masterproc ) then
      call modal_aero_amicphys_intr(               &
          mdo_gasaerexch,     mdo_rename,          &
          mdo_newnuc,         mdo_coag,            &
-         lchnk,    1,     nstep   ,           &
+         lchnk,    pcols,     nstep   ,           &
          loffset,  deltat,                        &
          latndx,   lonndx,                        &
          physta%t,   physta%pmid, physta%pdel,    &
@@ -277,23 +283,29 @@ call load_pbuf( pbuf, lchnk, pcols, &
          vmr_svaa,                                &   ! before gas chem
          vmr_svbb,           vmrcw_svbb,          &   ! before cloud chem!
 !         nqtendbb,           nqqcwtendbb,         &  ! ifdef cambox not enabled for now  
-!         dvmrdt_bb,          dvmrcwdt_bb,         &  ! in the interface
+!         dvmrdt_bb,          dvmrcwdt_bb,         &  ! in the interface maybe conssider for diag
          physta%dgncur_a,     physta%dgncur_awet,  &
          physta%wetdens,      physta%qaerwat              )
     end if
  
+! vmr and vmrcw have been updated in modal_aero_amicphys_intr  
+! switch back from vmr & vmrcw to q & qqcw state
+!
+      do l = imozart, pcnst
+         l2 = l - loffset
+         physta%q(    1:pcols,1:pver,l)  = vmr(  1:pcols,1:pver,l2) * adv_mass(l2)/mwdry 
+         physta%qqcw( 1:pcols,1:pver,l)  = vmrcw(1:pcols,1:pver,l2) * adv_mass(l2)/mwdry
+      end do
 
 
-
+! update GC tracer
 
 
     IF(masterproc) THEN
       print*,'FAB DRIVER'   
 
-      print*, 'vmr', vmr(10,2,:)  
+      print*, 'vmr apres', vmr(10,2,:)  
       
-      !      DO N=1,State_Chm%nSpecies 
-      !      END DO
     END IF
 
 

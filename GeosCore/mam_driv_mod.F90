@@ -1,5 +1,5 @@
 ! FAB think about ifdef
-!#ifdef APM
+!#ifdef  MAM
 !------------------------------------------------------------------------------
 !                  GEOS-Chem Global Chemical Transport Model                  !
 !------------------------------------------------------------------------------
@@ -47,6 +47,15 @@ type(physics_buffer_desc), pointer :: pbuf(:)
 type(physics_state) :: physta
 type(physics_ptend) :: ptend
 
+type mamgctrac ! handle species indices in MAM and GC worlds  
+  integer :: gcind  ! in relation to Spc (GC species)
+  integer :: mamind ! in relation to q 
+  character* 8  :: name !GC species name for MAM tracers  
+end type mamgctrac
+
+type(mamgctrac), pointer :: mamgc(:)
+
+integer nmamgc ! number of GC advected MAM tracers 
 
 !MAM control ( will go in namelist) 
     integer :: mdo_gasaerexch,     mdo_rename,          &
@@ -55,7 +64,7 @@ type(physics_ptend) :: ptend
     integer :: lchnk, loffset
 
 !species indices pointing to constituents in the physta%q variable 
-    integer :: l_nh3g, l_so2g, l_soag, l_hno3g, l_hclg, l_h2so4g 
+    integer :: l_nh3g, l_so2g, l_soag, l_h2o2g,l_dmsg, l_hno3g, l_hclg, l_h2so4g 
     integer :: l_num_a1, l_num_a2, l_nh4_a1, l_nh4_a2, &
                  l_so4_a1, l_so4_a2, l_soa_a1, l_soa_a2
     integer :: l_numa, l_so4a, l_nh4a, l_soaa, l_poma, l_bcxa, l_ncla, &
@@ -63,6 +72,8 @@ type(physics_ptend) :: ptend
 
 
     real(r8) :: deltat
+
+    logical, save  :: lfirstcall
 
 
 CONTAINS
@@ -93,10 +104,16 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     USE State_Chm_Mod,  ONLY : Ind_
     USE State_Grid_Mod, ONLY : GrdState
     USE State_Diag_Mod, ONLY : DgnState
-  
+    USE UnitConv_Mod,   ONLY : Check_Units 
+
     use mam_utils, only: begchunk, endrun
     use chem_mods, only: adv_mass, gas_pcnst, imozart
     use physconst, only: mwdry
+    use modal_aero_data, only: numptr_amode, lptr_so4_a_amode, &
+                               lptr_bc_a_amode, lptr_nacl_a_amode,&
+                               lptr_pom_a_amode, lptr_soa_a_amode,&
+                               lptr_dust_a_amode
+ 
     use modal_aero_calcsize, only: modal_aero_calcsize_sub
     use modal_aero_wateruptake, only: modal_aero_wateruptake_dr
     use modal_aero_amicphys, only: modal_aero_amicphys_intr, &
@@ -139,9 +156,6 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
 
 ! !LOCAL VARIABLES:
 !
-    REAL(fp)                   :: ANO3, GNO3
-    REAL(f8)                   :: RHI, TEMPI
-
       real(r8) :: vmr(pcols,pver,gas_pcnst)     ! gas & aerosol volume mixing ratios
       real(r8) :: vmrcw(pcols,pver,gas_pcnst)   ! gas & aerosol cloud-borne volume mixing ratios
       real(r8) :: vmr_svaa(pcols,pver,gas_pcnst) ! temp save before gas chem
@@ -152,21 +166,28 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       integer :: latndx(pcols),lonndx(pcols)                 !required by the mam interface
                                                 !not used now potentiall usefull for diags 
       integer :: nstep                          !same
-
+      character(len=8) :: spcnam
 !--------------------------------------------------------------------------
 
        
     ! Point to Spc
     Spc => State_Chm%Species
 
+    if(masterproc) then
+    end if
+
     lchnk = begchunk
     ! load the mam met state   
     physta%lchnk = lchnk
     physta%ncol  = pcols
 
+    if (.not. lfirstcall) then ! do not override box model like initialization of q for now (coldstart)
+                                ! think about a proper initialization at GC tracer levels 
+
+
     DO L = 1, State_Grid%NZ
     DO J = 1, State_Grid%NY
-    DO I = 1, State_Grid%NX
+    DO I = 1, State_Grid%NX ! GEOS-Chem vertical grid is bottom-up
       n = J + (I-1)*State_Grid%NY 
       physta%t(n,L) = State_Met%T(I,J,L)
       physta%pdel(n,l) = State_Met%DELP(I,J,L) * 100._r8 ! hPa to Pa 
@@ -177,18 +198,31 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       physta%zm(n,l) =  sum(State_Met%BXHEIGHT(I,J,1:l))- 0.5 * State_Met%BXHEIGHT(I,J,l)
 
       if (L==1) physta%pblh(n) = State_Met%PBLH(I,J)
+      ! first element water vapor mr (dont know if it is really used)  
+      physta%q(n,l,1) = physta%qv(n,l) / (1._r8 - physta%qv(n,l))
+      
+      ! load q state gas (mass mixing ratio) from GC states. 
+      physta%q(n,l,l_h2o2g) = Spc(Ind_('H2O2'))%Conc(I,J,L) / State_Met%AD(I,J,L) 
+      physta%q(n,l,l_so2g) = Spc(Ind_('SO2'))%Conc(I,J,L) / State_Met%AD(I,J,L)
+      physta%q(n,l,l_dmsg) = Spc(Ind_('DMS'))%Conc(I,J,L) / State_Met%AD(I,J,L)
+!    
+!SOAg and H2SO4g save production from GC routines  
+!      physta%q(n,l,l_soag) = Spc(Ind_('SOAP'))%Conc(I,J,L) / airmass 
+! other gas might be considered when teating semi-volatils
 
-! load aerosol state fo
-!IMPORTANT
-! for now do not update with GC tracers  
-!       state%q(n,L,:) =
-! load ptend
-!      ptend%lq    = dotend
-!      ptend%q     = dqdt
-! A FAIRE ZM
+     ! load q state aerosol variables 
+         
+     do m = 1 , nmamgc
+        !load number concentrations #/gridbox and convert to #/kg (faire une boucle smart) 
+        physta%q(n,l,mamgc(m)%mamind) = Spc(mamgc(m)%gcind)%Conc(I,J,L)/State_Met%AD(I,J,L) !
+     end do  
+
+
     END DO
     END DO
     END DO
+
+    end if ! lfirst call tempor.
 
 ! CALCSIZE INTERFACE     
     
@@ -205,7 +239,8 @@ call load_pbuf( pbuf, lchnk, pcols, &
       call unload_pbuf( pbuf, lchnk, pcols, &
          physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens )
 !
-! apply tendencies ! note ptend.lq can be modified by calcsize 
+! apply tendencies ! note ptend.lq can be modified by calcsize
+! not sure this loop is optimal 
       do l = 1, pcnst
          if ( .not. ptend%lq(l) ) cycle
          do k = 1, pver
@@ -222,6 +257,7 @@ call load_pbuf( pbuf, lchnk, pcols, &
 ! WATER UPTAKE    
      call load_pbuf( pbuf, lchnk, pcols, &
         physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens )
+
      call modal_aero_wateruptake_dr( physta, pbuf )
 
      call unload_pbuf( pbuf, lchnk, pcols, &
@@ -239,9 +275,11 @@ call load_pbuf( pbuf, lchnk, pcols, &
       end do
 !-------------------------------
 ! GASCHEM 
-! not sure if h2so4 formed when aerosol is off in GC fullchem  ? GIVE MORE THOUGHTS 
+! MORE THOUGHTS: 
+! it is possible to get the gas phase h2so4 production rate from fullchem (eg done for cesm interface, or for dust sulafate uptake)
+! possibly get the gas phase and the aqueous phase P.R or recalculate an aqueous phase PR ??   
 ! for now : consider simple gas chem identic to box model. The gaschem routine is directly
-! inserted in the driver module rather than as part of the mam dir.
+! inserted in the driver module rather than as part of the mam dir. IT IS TEMPORARY.
       vmr_svaa   = vmr  !save before gas chem
 
 ! global avg ~= 13 d = 1.12e6 s, daytime avg ~= 5.6e5, noontime peak ~= 3.7e5
@@ -256,19 +294,16 @@ call load_pbuf( pbuf, lchnk, pcols, &
       vmr_svbb = vmr    ! save before cloud chem
       vmrcw_svbb = vmrcw! save before cloud chem
 
-!CLOUDCHEM modifies vmr and vmrcw.I skip for now,  question :  are cloud born aerosol also transported or
-!can they be considered as diag variables  
-      
+!CLOUDCHEM modifies vmr and vmrcw.I skip for now
+!rq vmrcw / qcw are not advected in MAM. Could be considered as pseudo-diag   
+
 IF(masterproc) THEN
-      
-
-      print*, 'vmr avant ', vmr(10,2,:)
-
-    END IF
+  print*, 'q avant ', physta%q(10,2,:)
+END IF
  
 ! call the mam microphysics driver  
 !------------------------------
-  nstep = 1 ! improve later
+  nstep = 1 ! get the GC integration step counter ( used only for print out in fact) 
   if(1==1) then ! .and. masterproc ) then
      call modal_aero_amicphys_intr(               &
          mdo_gasaerexch,     mdo_rename,          &
@@ -297,43 +332,27 @@ IF(masterproc) THEN
          physta%qqcw( 1:pcols,1:pver,l)  = vmrcw(1:pcols,1:pver,l2) * adv_mass(l2)/mwdry
       end do
 
-
-! update GC tracer
+      
+      
+! Update GC tracers 
+     DO L = 1, State_Grid%NZ
+     DO J = 1, State_Grid%NY
+     DO I = 1, State_Grid%NX
+        n = J + (I-1)*State_Grid%NY
+        do m=1,nmamgc
+          Spc(mamgc(m)%gcind)%Conc(I,J,L) = physta%q(n,l,mamgc(m)%mamind) * State_Met%AD(I,J,L)
+        end do
+     ENDDO
+     ENDDO
+     ENDDO
 
 
     IF(masterproc) THEN
       print*,'FAB DRIVER'   
-
-      print*, 'vmr apres', vmr(10,2,:)  
-      
+      print*, 'q apres', physta%q(10,2,:)  
     END IF
 
-
-
-
-
-
-
-
-
-    !FAB just keep qan example of communication with species
-!    IF(IFDOISRP==1.or.IFDOISRP==4.or.IFDOISRP==5)THEN
-!       !$OMP PARALLEL DO       &
-!       !$OMP DEFAULT( SHARED ) &
-!       !$OMP PRIVATE( I, J, L) &
-!       !$OMP SCHEDULE( DYNAMIC )
-!       DO L = 1, State_Grid%NZ
-!       DO J = 1, State_Grid%NY
-!       DO I = 1, State_Grid%NX
-!          Spc(APMIDS%id_NH3)%Conc(I,J,L) = MASSISRP(I,J,L,1)
-!          Spc(APMIDS%id_NH4)%Conc(I,J,L) = MASSISRP(I,J,L,2)
-!          Spc(APMIDS%id_HNO3)%Conc(I,J,L)= MASSISRP(I,J,L,3)
-!          Spc(APMIDS%id_NIT)%Conc(I,J,L) = MASSISRP(I,J,L,4)
-!       ENDDO
-!       ENDDO
-!       ENDDO
-!       !$OMP END PARALLEL DO
-!    ENDIF
+    if (lfirstcall) lfirstcall = .false.
 
   END SUBROUTINE MAM_DRIV 
 
@@ -342,7 +361,7 @@ IF(masterproc) THEN
 SUBROUTINE MAM_INIT( Input_Opt, State_Chm,  State_Diag, State_Grid, RC )
 
        
-       
+ 
     USE Input_Opt_Mod,  ONLY : OptInput
     USE Species_Mod,    ONLY : SpcConc
     USE State_Chm_Mod,  ONLY : ChmState
@@ -355,6 +374,10 @@ SUBROUTINE MAM_INIT( Input_Opt, State_Chm,  State_Diag, State_Grid, RC )
     use mam_utils, ONLY : plev 
     use physics_buffer, only: physics_buffer_desc 
     use physics_types, only : physics_state
+    use modal_aero_data, only: numptr_amode, lptr_so4_a_amode, &
+                               lptr_bc_a_amode, lptr_nacl_a_amode,&
+                               lptr_pom_a_amode, lptr_soa_a_amode,&
+                               lptr_dust_a_amode
 
     ! !INPUT PARAMETERS:
 !
@@ -372,10 +395,12 @@ SUBROUTINE MAM_INIT( Input_Opt, State_Chm,  State_Diag, State_Grid, RC )
     INTEGER,        INTENT(OUT)   :: RC          ! Success or failure?
 !!
 
-!    type(physics_buffer_desc), pointer :: pbuf2d(:,:)
-!    type(physics_state)  :: physta 
-
     integer :: species_class(pcnst) = -1
+    integer  :: m , i 
+    character * 8 :: tmp
+
+    
+    
 !-------initialise namelist parameters
 
    mdo_gaschem=1
@@ -390,14 +415,6 @@ SUBROUTINE MAM_INIT( Input_Opt, State_Chm,  State_Diag, State_Grid, RC )
 ! Chemistry timestep [s]
    deltat  = GET_TS_CHEM()
 
-! from regcm
-!do j
-!do i
-!n = (j-jci1)+(i-ici1)*nj+1
-
-!nj = (jci2-jci1+1)
-!      npoints = nj*(ici2-ici1+1)
-
 
 pcols = State_Grid%NX *  State_Grid%Ny
 pver  = State_Grid%NZ
@@ -406,13 +423,83 @@ plev = pver
 !pcols pver pourraient just passer par module plutot que par argument
 call MAM_init_basics(  )
 
-
 call MAM_ALLOCATE ( )
 
 call MAM_init_run ()
 
+! initialize MAM4/GC transported tracer indices
+! allocate according to MAM option , start with MAM 4  
 
+nmamgc = 18 
 
+allocate(mamgc(nmamgc)) 
+mamgc(:)%name ='none'  
+mamgc(:)%gcind =-1 
+mamgc(:)%mamind =-1
+
+i=1 ! cumulative index  
+do m = 1 , size(numptr_amode)
+  if (numptr_amode(m) < 0) cycle 
+  write (tmp,'(A5,I1)')'MAMNu', m
+  mamgc(i)%name = trim(tmp)  
+  mamgc(i)%gcind = Ind_(mamgc(i)%name)
+  mamgc(i)%mamind= numptr_amode(m) 
+  i=i+1
+end do
+do m = 1 , size(lptr_so4_a_amode)
+  if (lptr_so4_a_amode(m) < 0) cycle
+  write (tmp,'(A6,I1)')'MAMSO4', m
+  mamgc(i)%name = trim(tmp)
+  mamgc(i)%gcind = Ind_(mamgc(i)%name)
+  mamgc(i)%mamind= lptr_so4_a_amode(m)
+  i=i+1
+end do
+do m = 1 , size(lptr_bc_a_amode)
+  if (lptr_bc_a_amode(m) < 0) cycle
+  write (tmp,'(A5,I1)')'MAMBC', m
+  mamgc(i)%name = trim(tmp)
+  mamgc(i)%gcind = Ind_(mamgc(i)%name)
+  mamgc(i)%mamind= lptr_bc_a_amode(m)
+  i=i+1
+end do
+do m = 1 , size(lptr_pom_a_amode)
+  if (lptr_pom_a_amode(m) < 0) cycle
+  write (tmp,'(A6,I1)')'MAMPOM', m
+  mamgc(i)%name = trim(tmp)
+  mamgc(i)%gcind = Ind_(mamgc(i)%name)
+  mamgc(i)%mamind= lptr_pom_a_amode(m)
+  i=i+1
+end do
+do m = 1 , size(lptr_soa_a_amode)
+  if (lptr_soa_a_amode(m) < 0) cycle
+  write (tmp,'(A6,I1)')'MAMSOA', m
+  mamgc(i)%name = trim(tmp)
+  mamgc(i)%gcind = Ind_(mamgc(i)%name)
+  mamgc(i)%mamind= lptr_soa_a_amode(m)
+  i=i+1
+end do
+do m = 1 , size(lptr_nacl_a_amode)
+  if (lptr_nacl_a_amode(m) < 0) cycle
+  write (tmp,'(A7,I1)')'MAMSSLT', m
+  mamgc(i)%name = trim(tmp)
+  mamgc(i)%gcind = Ind_(mamgc(i)%name)
+  mamgc(i)%mamind= lptr_nacl_a_amode(m)
+  i=i+1
+end do
+do m = 1 , size(lptr_dust_a_amode)
+  if (lptr_dust_a_amode(m) < 0) cycle
+  write (tmp,'(A7,I1)')'MAMDUST', m
+  mamgc(i)%name = trim(tmp)
+  mamgc(i)%gcind = Ind_(mamgc(i)%name)
+  mamgc(i)%mamind= lptr_dust_a_amode(m)
+  i=i+1
+end do
+
+if (masterproc) then 
+  print*, mamgc(:)%name
+  print*, mamgc(:)%gcind
+  print*, mamgc(:)%mamind
+end if        
 
 END SUBROUTINE MAM_INIT        
 
@@ -662,6 +749,9 @@ end if
       cnst_name(5) = 'NUMICE'
       cnst_name(imozart:pcnst) = solsym(1:gas_pcnst)
 
+
+
+
       mosaic = .false.
 
      
@@ -695,11 +785,14 @@ end if
       call modal_aero_initialize(pbuf2d, imozart, species_class )
       call modal_aero_wateruptake_init( pbuf2d )
 
+
+
+      lfirstcall = .true.
       lchnk = begchunk
       loffset = imozart -1 
       pbuf => pbuf_get_chunk( pbuf2d, lchnk)
  
-
+      
 
 END SUBROUTINE MAM_init_basics         
 !---------------------------------------------------------------------------------
@@ -798,6 +891,31 @@ integer :: i,k,n
 
 !------------------------------------------------------------------------------
 
+
+
+! initialize local indices relative to mam state % q 
+      call cnst_get_ind( 'SOAG',  l_soag,   .false. )
+      call cnst_get_ind( 'SO2',   l_so2g,   .false. )
+      call cnst_get_ind( 'H2SO4', l_h2so4g, .false. )
+      call cnst_get_ind( 'H2O2', l_h2o2g,   .false. )
+      call cnst_get_ind( 'DMS', l_dmsg,   .false. )
+!      call cnst_get_ind( 'NH3',   l_nh3g,   .false. )
+!      call cnst_get_ind( 'HNO3',  l_hno3g,  .false. )
+!      call cnst_get_ind( 'HCL',   l_hclg,   .false. )
+!
+
+!initialize gas phase and aerosol state for dev test only TEMPORARY
+! be aware of modal_aero_initialize_q in modal_aero_initialize_data.F90
+! which is not called but could be usefull
+      q => physta%q
+      dgncur_a => physta%dgncur_a
+
+      q(:,:,l_so2g)   = 1.e-4
+      q(:,:,l_soag)   = 5.e-10
+      q(:,:,l_h2so4g) = 1.e-13
+
+
+
 numc1          = 1.e8    ! unit: #/m3
 numc2          = 1.e9
 numc3          = 1.e5
@@ -849,9 +967,6 @@ newnuc_h2so4_conc_optaa   =  2
 ! fix this but perhaps this will go in a first call and not restart statement at the first integrartions tep  
 allocate(aircon(pcols,pver))
 aircon(:,:) = 0.0345_r8 * 0.8 ! kmol/m3 for a density of 0.8 kg/m3
-
-q => physta%q
-dgncur_a => physta%dgncur_a
 
 
 ! initialize the aerosol/number mixing ratio
@@ -969,19 +1084,6 @@ dgncur_a => physta%dgncur_a
             end do ! n
          end do ! i
       end do ! k   
-
-!TEMPORAIRE EN ATTENDANT COUPLAGE  initialize the gas mixing ratio value from box namelist
-! set trace gases
-      call cnst_get_ind( 'SOAG',  l_soag,   .false. )
-      call cnst_get_ind( 'SO2',   l_so2g,   .false. )
-      call cnst_get_ind( 'NH3',   l_nh3g,   .false. )
-      call cnst_get_ind( 'HNO3',  l_hno3g,  .false. )
-      call cnst_get_ind( 'HCL',   l_hclg,   .false. )
-      call cnst_get_ind( 'H2SO4', l_h2so4g, .false. )
-
-      q(:,:,l_so2g)   = 1.e-4
-      q(:,:,l_soag)   = 5.e-10
-      q(:,:,l_h2so4g) = 1.e-13
 
 
 END SUBROUTINE MAM_init_run

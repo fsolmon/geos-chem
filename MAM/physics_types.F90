@@ -71,10 +71,6 @@ real(r8), dimension(:,:,:), pointer     :: &
           dgncur_awet,&! 
           qaerwat, &    !
           wetdens
-
-          
-          
-
   end type physics_state
 
 !!-------------------------------------------------------------------------------

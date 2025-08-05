@@ -13,7 +13,7 @@ use wv_saturation,    only: qsat_water
 use rad_constituents, only: rad_cnst_get_info, rad_cnst_get_aer_mmr, rad_cnst_get_aer_props, &
                             rad_cnst_get_mode_props, rad_cnst_get_mode_num
 use mam_utils, only : pcols, pver, addfld, add_default, outfld, iulog, endrun, &
-                      top_lev => clim_modal_aero_top_lev
+                      top_lev => clim_modal_aero_top_lev,masterproc
 !use cam_history,      only: addfld, add_default, outfld
 !use cam_logfile,      only: iulog
 !use ref_pres,         only: top_lev => clim_modal_aero_top_lev
@@ -232,9 +232,9 @@ subroutine modal_aero_wateruptake_dr(state, pbuf, list_idx_in, dgnumdry_m, &
                      'diagnostic list but required args not associated')
       end if
    end if
-
    ! loop over all aerosol modes
    call rad_cnst_get_info(list_idx, nmodes=nmodes)
+
 
    allocate( &
       maer(pcols,pver,nmodes),     &
@@ -339,7 +339,6 @@ subroutine modal_aero_wateruptake_dr(state, pbuf, list_idx_in, dgnumdry_m, &
    h2ommr => state%q(:,:,1)
    t      => state%t
    pmid   => state%pmid
-
    itim_old    =  pbuf_old_tim_idx()
    call pbuf_get_field(pbuf, cld_idx, cldn, start=(/1,1,itim_old/), kount=(/pcols,pver,1/) )
 
@@ -364,7 +363,6 @@ subroutine modal_aero_wateruptake_dr(state, pbuf, list_idx_in, dgnumdry_m, &
          rh(i,k) = max(rh(i,k), 0.0_r8)
       end do
    end do
-
    ! Step2: solve Kohler equation with the array-based input generated above
    !        update dgn_wet, qaerwat and wetdens
    call modal_aero_wateruptake_sub( ncol, top_lev, pver, nmodes, rhcrystal, rhdeliques,   &       ! intent(in)
@@ -388,11 +386,9 @@ subroutine modal_aero_wateruptake_dr(state, pbuf, list_idx_in, dgnumdry_m, &
          call outfld( 'aero_water',  aerosol_water(:ncol,:),    ncol, lchnk)
 
    end if
-
    deallocate( &
       maer,   hygro,     naer,       dryvol,    drymass,    &
       dryrad, rhcrystal, rhdeliques, specdens_1             )
-
 end subroutine modal_aero_wateruptake_dr
 
 !===============================================================================

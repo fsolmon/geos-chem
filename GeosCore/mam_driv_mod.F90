@@ -193,7 +193,9 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       
       ! load q state gas (mass mixing ratio) from GC states. 
       physta%q(n,l,l_h2o2g) = Spc(Ind_('H2O2'))%Conc(I,J,L) / State_Met%AD(I,J,L) 
-      physta%q(n,l,l_so2g) = Spc(Ind_('SO2'))%Conc(I,J,L) / State_Met%AD(I,J,L)
+!test FAB    
+      physta%q(n,l,l_so2g) = Spc(Ind_('SO2'))%Conc(I,J,L)* 1000 / State_Met%AD(I,J,L)
+
       physta%q(n,l,l_dmsg) = Spc(Ind_('DMS'))%Conc(I,J,L) / State_Met%AD(I,J,L)
 !     SOAg and H2SO4g save production from GC routines  
 !      physta%q(n,l,l_soag) = Spc(Ind_('SOAP'))%Conc(I,J,L) / airmass 
@@ -267,12 +269,21 @@ call load_pbuf( pbuf, lchnk, pcols, &
 ! WATER UPTAKE    
      call load_pbuf( pbuf, lchnk, pcols, &
         physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens )
-
+!
      call modal_aero_wateruptake_dr( physta, pbuf )
-
+     
      call unload_pbuf( pbuf, lchnk, pcols, &
          physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens )
 
+
+ 
+ 
+IF(masterproc) THEN
+  print*, 'q sox avant ', l_so2g, physta%q(5,2,l_so2g),l_h2so4g, physta%q(5,2,l_h2so4g)
+  print*, 'q num avant', physta%q(5,2,17), physta%q(5,2,21), physta%q(5,2,25)
+END IF
+ 
+ 
 !-------------------------------------------------------------------------------- 
 ! switch from q & qqcw mass mixing ratios to volume mixing ratios  vmr and vmrcw
 ! only adress the gas/aerosol variables in q 
@@ -307,9 +318,6 @@ call load_pbuf( pbuf, lchnk, pcols, &
 !CLOUDCHEM modifies vmr and vmrcw.I skip for now
 !rq vmrcw / qcw are not advected in MAM. Could be considered as pseudo-diag   
 
-IF(masterproc) THEN
-  print*, 'q avant ', physta%q(10,2,:)
-END IF
  
 ! call the mam microphysics driver  
 !------------------------------
@@ -341,6 +349,11 @@ END IF
          physta%q(    1:pcols,1:pver,l)  = vmr(  1:pcols,1:pver,l2) * adv_mass(l2)/mwdry 
          physta%qqcw( 1:pcols,1:pver,l)  = vmrcw(1:pcols,1:pver,l2) * adv_mass(l2)/mwdry
       end do
+IF(masterproc) THEN
+      print*,'FAB DRIVER'
+      print*, 'q apres sox ',l_so2g, physta%q(5,2,l_so2g),l_h2so4g, physta%q(5,2,l_h2so4g)
+      print*, 'q apres num ', physta%q(5,2,17), physta%q(5,2,21), physta%q(5,2,25)
+END IF
 
       
       
@@ -356,11 +369,6 @@ END IF
      ENDDO
      ENDDO
 
-
-    IF(masterproc) THEN
-      print*,'FAB DRIVER'   
-      print*, 'q apres', physta%q(10,2,:)  
-    END IF
 
     if (lfirstcall) lfirstcall = .false.
 
@@ -924,35 +932,35 @@ integer :: i,k,n
       q => physta%q
       dgncur_a => physta%dgncur_a
 
-      q(:,:,l_so2g)   = 1.e-4
-      q(:,:,l_soag)   = 5.e-10
-      q(:,:,l_h2so4g) = 1.e-13
+!      q(:,:,l_so2g)   = 1.e-4
+!      q(:,:,l_soag)   = 5.e-10
+!      q(:,:,l_h2so4g) = 1.e-13
 
-numc1          = 1.e8    ! unit: #/m3
-numc2          = 1.e9
-numc3          = 1.e5
-numc4          = 2.e8
+numc1          = 1.E6_r8    ! unit: #/m3
+numc2          = 0._r8
+numc3          = 0._r8
+numc4          = 0._r8
 
-mfso41         = 0.3_r8
+mfso41         = 1._r8
 mfpom1         = 0._r8
-mfsoa1         = 0.3_r8
+mfsoa1         = 0._r8
 mfbc1          = 0._r8
 mfdst1         = 0._r8
-mfncl1         = 0.4_r8
+mfncl1         = 0._r8
 
-mfso42         = 0.3_r8
-mfsoa2         = 0.3_r8
-mfncl2         = 0.4_r8
+mfso42         = 0._r8
+mfsoa2         = 0._r8
+mfncl2         = 0._r8
 
 mfdst3         = 0._r8
-mfncl3         = 0.4_r8
-mfso43         = 0.3_r8
+mfncl3         = 0._r8
+mfso43         = 0._r8
 mfbc3          = 0._r8
 mfpom3         = 0._r8
-mfsoa3         = 0.3_r8
+mfsoa3         = 0._r8
 
 mfpom4         = 0._r8
-mfbc4          = 1._r8
+mfbc4          = 0._r8
 
       ! check if mass fraction is larger than one
       if (mfso41+mfpom1+mfsoa1+mfbc1+mfdst1+mfncl1 .gt. 1._r8) then
@@ -972,20 +980,10 @@ mfbc4          = 1._r8
           stop
       end if
 
-
-!FAB quick and dirty , their should not be any met state related operation here
-! fix this but perhaps this will go in a first call and not restart statement at the first integrartions tep  
-
-
-
-
-!allocate(aircon(pcols,pver))
-!aircon(:,:) = 0.0345_r8 * 0.8 ! kmol/m3 for a density of 0.8 kg/m3
-
-
 ! initialize the aerosol/number mixing ratio for cold start.
-! adapted to mam4 box model for now , perhaps  
-      do k = 1, pver
+! adapted to mam4 box model for now , only on the first 10 levels  
+
+       do k = 1, 10
          do i = 1, pcols 
             do  n = 1, ntot_amode
 
@@ -999,8 +997,8 @@ mfbc4          = 1._r8
                    tmpfdst      = mfdst1
                    tmpfpom      = mfpom1
                    tmpfbcx      = mfbc1
-                   tmpfmom      = 1._r8 - tmpfsoa - tmpfso4 - &
-                                  tmpfncl - tmpfdst - tmpfpom - tmpfbcx
+                 !  tmpfmom      = 1._r8 - tmpfsoa - tmpfso4 - &
+                 !                 tmpfncl - tmpfdst - tmpfpom - tmpfbcx
                 else if (n == 2) then
                    dgncur_a(i,k,n) = dgnum_amode(n)  ! 0.04e-6_r8
                    tmpfsoa      = mfsoa2
@@ -1009,8 +1007,8 @@ mfbc4          = 1._r8
                    tmpfdst      = 0._r8
                    tmpfpom      = 0._r8
                    tmpfbcx      = 0._r8
-                   tmpfmom      = 1._r8 - tmpfsoa - tmpfso4 - &
-                                  tmpfncl - tmpfdst - tmpfpom - tmpfbcx
+                 !  tmpfmom      = 1._r8 - tmpfsoa - tmpfso4 - &
+                 !                 tmpfncl - tmpfdst - tmpfpom - tmpfbcx
                 else if (n == 3) then
                    dgncur_a(i,k,n) = dgnum_amode(n)  ! 2.00e-6_r8
                    tmpfsoa      = mfsoa3
@@ -1019,8 +1017,8 @@ mfbc4          = 1._r8
                    tmpfdst      = mfdst3
                    tmpfpom      = mfpom3
                    tmpfbcx      = mfbc3
-                   tmpfmom      = 1._r8 - tmpfsoa - tmpfso4 - &
-                                  tmpfncl - tmpfdst - tmpfpom - tmpfbcx
+                  ! tmpfmom      = 1._r8 - tmpfsoa - tmpfso4 - &
+                  !                tmpfncl - tmpfdst - tmpfpom - tmpfbcx
                 else if (n == 4) then
                    dgncur_a(i,k,n) = dgnum_amode(n)  ! 0.08e-6_r8
                    tmpfsoa      = 0._r8
@@ -1029,8 +1027,8 @@ mfbc4          = 1._r8
                    tmpfdst      = 0._r8
                    tmpfpom      = mfpom4
                    tmpfbcx      = mfbc4
-                   tmpfmom      = 1._r8 - tmpfsoa - tmpfso4 - &
-                                  tmpfncl - tmpfdst - tmpfpom - tmpfbcx
+                  ! tmpfmom      = 1._r8 - tmpfsoa - tmpfso4 - &
+                  !                tmpfncl - tmpfdst - tmpfpom - tmpfbcx
                 end if
                 ! q(i,k,numptr_amode(n)) = #/kg-air
                 if (n == modeptr_aitken) then

@@ -147,6 +147,13 @@ CONTAINS
     USE TOMAS_MOD,                ONLY : H2SO4_RATE
     USE TOMAS_MOD,                ONLY : PSO4AQ_RATE
 #endif
+!FAB perhaps think about a common interface with TOMAS
+#ifdef MODAL_AERO_4MODE
+    USE MAM_DRIV_MOD,                ONLY : H2SO4_RATE
+    USE MAM_DRIV_MOD,                ONLY : PSO4AQ_RATE
+#endif
+
+
 !
 ! !INPUT PARAMETERS:
 !
@@ -1349,7 +1356,8 @@ CONTAINS
 
        ENDDO
 
-#ifdef TOMAS
+#if defined(TOMAS) || defined(MODAL_AERO_4MODE)
+!FAB#ifdef TOMAS
        !-----------------------------------------------------------------
        ! FOR TOMAS MICROPHYSICS:
        !
@@ -1381,6 +1389,7 @@ CONTAINS
                I, J, L, "was:", PSO4AQ_RATE(I,J,L), "  setting to 0.0d0"
           PSO4AQ_RATE(I,J,L) = 0.0d0
        ENDIF
+        
 #endif
 
 #ifdef MODEL_CESM
@@ -1549,7 +1558,7 @@ CONTAINS
     ENDDO
     ENDDO
     !$OMP END PARALLEL DO
-
+    print* , 'FAB fullchem', maxval(H2SO4_RATE) 
     !=======================================================================
     ! Return gracefully if integration failed 2x anywhere
     ! (as we cannot break out of a parallel DO loop!)

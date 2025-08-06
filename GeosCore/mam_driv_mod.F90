@@ -38,7 +38,12 @@ PUBLIC :: MAM_DRIV, MAM_INIT
 !EOP
 !------------------------------------------------------------------------------
 !BOC
-!
+!PUBLIC DATA
+
+
+! sulf production rate calculates in   
+REAL(fp), pointer, public :: PSO4AQ_RATE(:,:,:) ! Cld chem sulfate prod rate [kg s-1]  
+REAL(fp), pointer, public :: H2SO4_RATE(:,:,:) ! H2SO4 prod rate [kg s-1]
 ! 
 !
 
@@ -60,7 +65,7 @@ integer nmamgc ! number of GC advected MAM tracers
 !MAM control ( will go in namelist) 
     integer :: mdo_gasaerexch,     mdo_rename,          &
                mdo_newnuc,         mdo_coag
-    integer :: mdo_gaschem
+    integer :: mdo_gaschem, mdo_cloudchem
     integer :: lchnk, loffset
 
 !species indices pointing to constituents in the physta%q variable 
@@ -106,7 +111,8 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     use modal_aero_data, only: numptr_amode, lptr_so4_a_amode, &
                                lptr_bc_a_amode, lptr_nacl_a_amode,&
                                lptr_pom_a_amode, lptr_soa_a_amode,&
-                               lptr_dust_a_amode
+                               lptr_dust_a_amode, lptr_so4_cw_amode,&
+                               modeptr_accum
  
     use modal_aero_calcsize, only: modal_aero_calcsize_sub
     use modal_aero_wateruptake, only: modal_aero_wateruptake_dr
@@ -167,13 +173,13 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     Spc => State_Chm%Species
 
     if(masterproc) then
+    print*,'FAB DRIV', maxval(h2so4_rate)
     end if
 
     lchnk = begchunk
     ! load the mam met state   
     physta%lchnk = lchnk
     physta%ncol  = pcols
-
 
     DO L = 1, State_Grid%NZ
     DO J = 1, State_Grid%NY
@@ -188,18 +194,31 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       physta%zm(n,l) =  sum(State_Met%BXHEIGHT(I,J,1:l))- 0.5 * State_Met%BXHEIGHT(I,J,l)
 
       if (L==1) physta%pblh(n) = State_Met%PBLH(I,J)
-      ! first element water vapor mr (dont know if it is really used)  
+
+      ! first element water vapor mr (used in water )  
       physta%q(n,l,1) = physta%qv(n,l) / (1._r8 - physta%qv(n,l))
-      
-      ! load q state gas (mass mixing ratio) from GC states. 
+
+      ! load sulf production rate and convert from Kg.s-1  to kg.kg-1.s-1 
+      ! needs fullchem activated 
+       
+      physta%ph2so4(n,l) = h2so4_rate(I,J,L) / State_Met%AD(I,J,L)              
+
+      physta%paqso4(n,l) = PSO4AQ_RATE(I,J,L) / State_Met%AD(I,J,L)
+
+      ! load q gas ...
+      ! the gas phase species SO2,DMS,H2O2 in q are not used/modified 
+      ! if we use GC production rate for SO4 instead of MAM simple chem 
+      ! ,maybe get rid of them later or consider haveing some oxidaton routines
+      ! which could run dindependant of fullchem e.g. from prescribed oxidants..
+
       physta%q(n,l,l_h2o2g) = Spc(Ind_('H2O2'))%Conc(I,J,L) / State_Met%AD(I,J,L) 
-!test FAB    
-      physta%q(n,l,l_so2g) = Spc(Ind_('SO2'))%Conc(I,J,L)* 1000 / State_Met%AD(I,J,L)
+    
+      physta%q(n,l,l_so2g) = Spc(Ind_('SO2'))%Conc(I,J,L) / State_Met%AD(I,J,L)
 
       physta%q(n,l,l_dmsg) = Spc(Ind_('DMS'))%Conc(I,J,L) / State_Met%AD(I,J,L)
-!     SOAg and H2SO4g save production from GC routines  
-!      physta%q(n,l,l_soag) = Spc(Ind_('SOAP'))%Conc(I,J,L) / airmass 
-! other gas might be considered when teating semi-volatils
+
+!     physta%q(n,l,l_soag) = Spc(Ind_('SOAP'))%Conc(I,J,L) / airmass 
+!     other gas might be considered when teating semi-volatils
 
      END DO
      END DO
@@ -219,8 +238,9 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     END DO
     END DO
     END DO
-    end if ! lfirst call tempor.
+    end if ! lfirst call.
 
+    ! This colde start init is temporary until handling a proper GC restart file
     if (lfirstcall) then 
     DO L = 1, State_Grid%NZ
     DO J = 1, State_Grid%NY
@@ -279,7 +299,7 @@ call load_pbuf( pbuf, lchnk, pcols, &
  
  
 IF(masterproc) THEN
-  print*, 'q sox avant ', l_so2g, physta%q(5,2,l_so2g),l_h2so4g, physta%q(5,2,l_h2so4g)
+  print*, 'q sox avant ', l_so2g, physta%q(5,2,l_so2g),l_h2so4g, physta%q(5,2,l_h2so4g),physta%ph2so4(5,2) 
   print*, 'q num avant', physta%q(5,2,17), physta%q(5,2,21), physta%q(5,2,25)
 END IF
  
@@ -295,28 +315,50 @@ END IF
          vmrcw(1:pcols,1:pver,l2) =physta%qqcw(1:pcols,1:pver,l)*mwdry/adv_mass(l2)
       end do
 !-------------------------------
-! GASCHEM 
-! MORE THOUGHTS: 
+! GASCHEM interface 
+!
 ! it is possible to get the gas phase h2so4 production rate from fullchem (eg done for cesm interface, or for dust sulafate uptake)
 ! possibly get the gas phase and the aqueous phase P.R or recalculate an aqueous phase PR ??   
 ! for now : consider simple gas chem identic to box model. The gaschem routine is directly
 ! inserted in the driver module rather than as part of the mam dir. IT IS TEMPORARY.
-      vmr_svaa   = vmr  !save before gas chem
 
+      vmr_svaa   = vmr  !save before gas chem , this is how the mam code proceed
 ! global avg ~= 13 d = 1.12e6 s, daytime avg ~= 5.6e5, noontime peak ~= 3.7e5
       tau_gaschem_simple = 3.0e5  ! so2 gas-rxn timescale (s)
 
       if (mdo_gaschem > 0) then
-         call gaschem_simple_sub(                      &
-            lchnk,                                     &
-            vmr,                tau_gaschem_simple      )
+        !update h2so4 from ptend which is connectd to sulf prod prom GC
+        ! I hope this is clear..
+        !
+        l2 = l_h2so4g-loffset
+        vmr(1:pcols,1:pver,l2) = vmr(1:pcols,1:pver,l2) + physta%ph2so4*mwdry/adv_mass(l2)*deltat          
+
+        ! global avg ~= 13 d = 1.12e6 s, daytime avg ~= 5.6e5, noontime peak ~= 3.7e5
+        ! tau_gaschem_simple = 3.0e5  ! so2 gas-rxn timescale (s)
+        !  call gaschem_simple_sub( vmr, tau_gaschem_simple      )
       end if 
 
       vmr_svbb = vmr    ! save before cloud chem
       vmrcw_svbb = vmrcw! save before cloud chem
 
-!CLOUDCHEM modifies vmr and vmrcw.I skip for now
+!CLOUDCHEM modifies vmrcw.I skip for now
 !rq vmrcw / qcw are not advected in MAM. Could be considered as pseudo-diag   
+
+      if (mdo_cloudchem > 0) then
+        !update h2so4 from ptend which is connectd to sulf prod prom GC
+        !start by updating mass in the accumulation mode 
+        !(consider partitioning with aitken )
+        l2 = lptr_so4_cw_amode(modeptr_accum) - loffset
+        vmrcw(1:pcols,1:pver,l2) = vmrcw(1:pcols,1:pver,l2) +  & 
+                                   physta%paqso4*mwdry/adv_mass(l2)*deltat
+
+        ! global avg ~= 13 d = 1.12e6 s, daytime avg ~= 5.6e5, noontime peak ~= 3.7e5
+        ! tau_gaschem_simple = 3.0e5  ! so2 gas-rxn timescale (s)
+        !  call gaschem_simple_sub( vmr, tau_gaschem_simple      )
+      end if
+
+
+
 
  
 ! call the mam microphysics driver  
@@ -354,8 +396,6 @@ IF(masterproc) THEN
       print*, 'q apres sox ',l_so2g, physta%q(5,2,l_so2g),l_h2so4g, physta%q(5,2,l_h2so4g)
       print*, 'q apres num ', physta%q(5,2,17), physta%q(5,2,21), physta%q(5,2,25)
 END IF
-
-      
       
 ! Update GC tracers 
      DO L = 1, State_Grid%NZ
@@ -422,6 +462,7 @@ SUBROUTINE MAM_INIT( Input_Opt, State_Chm,  State_Diag, State_Grid, RC )
 !-------initialise namelist parameters
 
    mdo_gaschem=1
+   mdo_cloudchem =1
 
    mdo_gasaerexch=1
    mdo_rename=1
@@ -439,15 +480,17 @@ pver  = State_Grid%NZ
 plev = pver
 
 !pcols pver pourraient just passer par module plutot que par argument
-call MAM_init_basics(  )
+call MAM_init_basics()
 
-call MAM_ALLOCATE ( )
+!allocate MAM state 
+call MAM_ALLOCATE ()
 
-!call MAM_init_run ()
+!allocate specific GC diqg usefull for mam  
+ALLOCATE( PSO4AQ_RATE(State_Grid%NX,State_Grid%NY,State_Grid%NZ) )
+ALLOCATE( H2SO4_RATE(State_Grid%NX,State_Grid%NY,State_Grid%NZ) )
 
-! initialize MAM4/GC transported tracer indices
-! allocate according to MAM option , start with MAM 4  
-
+!Initialize MAM4/GC transported tracer indices, convenient 
+!Rq allocate according to MAM option , start with MAM 4 , to be refined 
 nmamgc = 18 
 
 allocate(mamgc(nmamgc)) 
@@ -841,6 +884,9 @@ allocate (physta%zm(pcols,pver), stat=as)
 allocate (physta%cld(pcols,pver), stat=as) 
 allocate (physta%relhum(pcols,pver) , stat=as)
 allocate (physta%qv(pcols,pver) , stat=as)
+
+allocate (physta%ph2so4(pcols,pver) , stat=as)
+allocate (physta%paqso4(pcols,pver) , stat=as)
 
 
 allocate (physta%q(pcols,pver,pcnst),stat=as)
@@ -1258,9 +1304,7 @@ subroutine load_pbuf( pbuf, lchnk, ncol,  &
       end subroutine unload_pbuf
 
 !----------------------------------------------------------------------
-subroutine gaschem_simple_sub(                     &
-   lchnk,                        &
-   x,  tau_gaschem_simple      )
+subroutine gaschem_simple_sub(x,  tau_gaschem_simple      )
 
 ! !USES:
 !use modal_aero_data
@@ -1270,7 +1314,6 @@ use chem_mods, only: gas_pcnst
 implicit none
 
 ! !PARAMETERS:
-   integer,  intent(in)    :: lchnk                ! chunk identifier
    real(r8), intent(in)    :: tau_gaschem_simple(pcols,pver)
    real(r8), intent(inout) :: x(pcols,pver,gas_pcnst) ! tracer mixing ratio (TMR) array
                                                    ! *** MUST BE  #/kmol-air for number

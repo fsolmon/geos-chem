@@ -1558,7 +1558,6 @@ CONTAINS
     ENDDO
     ENDDO
     !$OMP END PARALLEL DO
-    print* , 'FAB fullchem', maxval(H2SO4_RATE) 
     !=======================================================================
     ! Return gracefully if integration failed 2x anywhere
     ! (as we cannot break out of a parallel DO loop!)

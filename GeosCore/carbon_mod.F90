@@ -815,7 +815,7 @@ CONTAINS
    IF ( id_SOAP > 0 ) THEN
       ! AGE SOAP -> SOA
 
-#ifdef TOMAS
+#if defined (TOMAS)
       CALL CHECKMN( 0, 0, 0, Input_Opt, State_Chm, State_Grid, &
                  State_Met, State_Diag,'CHECKMN from chemcarbon', RC)
 
@@ -841,6 +841,9 @@ CONTAINS
       ENDDO
       ENDDO
       !$OMP END PARALLEL DO
+#elif defined (MODAL_AERO_4MODE)
+!FAB here just do nothing as SOAP will be updtated and condensed by MAM  
+ 
 #else
       !$OMP PARALLEL DO       &
       !$OMP DEFAULT( SHARED ) &

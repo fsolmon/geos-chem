@@ -197,6 +197,8 @@ MODULE SULFATE_MOD
   INTEGER                :: DRYNITd1,  DRYNITd2,  DRYNITd3
   INTEGER                :: DRYNITd4
 
+!FAB
+  public :: PSO4_SO2
 CONTAINS
 !EOC
 !------------------------------------------------------------------------------

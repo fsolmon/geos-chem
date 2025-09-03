@@ -42,6 +42,7 @@ PUBLIC :: MAM_DRIV, MAM_INIT
 
 
 ! sulf production rate calculates in   
+! perhaps use AeroMass state variables 
 REAL(fp), pointer, public :: PSO4AQ_RATE(:,:,:) ! Cld chem sulfate prod rate [kg s-1]  
 REAL(fp), pointer, public :: H2SO4_RATE(:,:,:) ! H2SO4 prod rate [kg s-1]
 ! 
@@ -104,7 +105,6 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     USE State_Grid_Mod, ONLY : GrdState
     USE State_Diag_Mod, ONLY : DgnState
     USE UnitConv_Mod,   ONLY : Check_Units 
-    use sulfate_mod,    ONLY : PSO4_SO2 
 
     use mam_utils, only: begchunk, endrun
     use chem_mods, only: adv_mass, gas_pcnst, imozart
@@ -176,7 +176,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
      print*, 'FAB comp rates',maxval(h2so4_rate), maxval(Spc(Ind_('PH2SO4'))%Conc(:,:,:))/deltat ,&
                maxval(PSO4AQ_RATE)/deltat, maxval(Spc(Ind_('PSO4AQ'))%Conc(:,:,:))/deltat  
      end if  
-     
+
     lchnk = begchunk
     ! load the mam met state   
     physta%lchnk = lchnk
@@ -213,14 +213,10 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       ! ,maybe get rid of them later or consider haveing some oxidaton routines
       ! which could run dindependant of fullchem e.g. from prescribed oxidants..
 
-!      physta%q(n,l,l_h2o2g) = Spc(Ind_('H2O2'))%Conc(I,J,L) / State_Met%AD(I,J,L) 
     
        physta%q(n,l,l_h2so4g) = Spc(Ind_('H2SO4'))%Conc(I,J,L) / State_Met%AD(I,J,L)
 
-!      physta%q(n,l,l_dmsg) = Spc(Ind_('DMS'))%Conc(I,J,L) / State_Met%AD(I,J,L)
-      
-!      physta%q(n,l,l_h2so4g) = Spc(Ind_('H2SO4'))%Conc(I,J,L) / State_Met%AD(I,J,L)
-
+       
       physta%q(n,l,l_soag) = Spc(Ind_('SOAP'))%Conc(I,J,L) / State_Met%AD(I,J,L) 
       ! Rq in GC standard lumped SOAP is not treated as semi_volatil but in MAM yes
       ! is this reqsonqble ? 
@@ -228,9 +224,11 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       ! other gas might be considered if MAM7 and/or MOSAIC are implemented
 
        ! FAB TEST 
-       Spc(Ind_('MAMDEV'))%Conc(I,J,L)= Spc(Ind_('MAMDEV'))%Conc(I,J,L) + h2so4_rate(i,j,l) *deltat + PSO4AQ_RATE(i,j,l)
+       !Spc(Ind_('MAMDEV'))%Conc(I,J,L)= Spc(Ind_('MAMDEV'))%Conc(I,J,L) + h2so4_rate(i,j,l) *deltat + PSO4AQ_RATE(i,j,l)
  
- 
+!         Spc(Ind_('MAMDEV'))%Conc(I,J,L)= Spc(Ind_('MAMDEV'))%Conc(I,J,L) + Spc(Ind_('PH2SO4'))%Conc(I,J,L) + Spc(Ind_('PSO4AQ'))%Conc(I,J,L)  
+
+
      END DO
      END DO
      END DO
@@ -288,7 +286,7 @@ call load_pbuf( pbuf, lchnk, pcols, &
          if ( .not. ptend%lq(l) ) cycle
          do k = 1, pver
          do i = 1, pcols 
-            physta%q(i,k,l) = physta%q(i,k,l) + ptend%q(i,k,l)*deltat  !fab: perhaps an exponential form ?
+            physta%q(i,k,l) = physta%q(i,k,l) + ptend%q(i,k,l)*deltat  
             physta%q(i,k,l) = max( physta%q(i,k,l), 0.0_r8 )
          end do
          end do
@@ -328,23 +326,14 @@ END IF
       end do
 !-------------------------------
 ! GASCHEM interface 
-!
-! it is possible to get the gas phase h2so4 production rate from fullchem (eg done for cesm interface, or for dust sulafate uptake)
-! possibly get the gas phase and the aqueous phase P.R or recalculate an aqueous phase PR ??   
-! for now : consider simple gas chem identic to box model. The gaschem routine is directly
-! inserted in the driver module rather than as part of the mam dir. IT IS TEMPORARY.
 
       vmr_svaa   = vmr  !save before gas chem , this is how the mam code proceed
-! global avg ~= 13 d = 1.12e6 s, daytime avg ~= 5.6e5, noontime peak ~= 3.7e5
-!      tau_gaschem_simple = 3.0e5  ! so2 gas-rxn timescale (s)
 
       if (mdo_gaschem > 0) then
         !
         l2 = l_h2so4g-loffset
         vmr(1:pcols,1:pver,l2) = vmr(1:pcols,1:pver,l2) + physta%ph2so4(1:pcols,1:pver)*mwdry/adv_mass(l2)*deltat          
 
-        ! tau_gaschem_simple = 3.0e5  ! so2 gas-rxn timescale (s)
-        !  call gaschem_simple_sub( vmr, tau_gaschem_simple      )
       end if 
 
       vmr_svbb = vmr    ! save before cloud chem
@@ -362,10 +351,6 @@ END IF
 
       end if
 
-
-        
- 
-! call the mam microphysics driver  
 !------------------------------
   nstep = 1 ! get the GC integration step counter ( used only for print out in fact) 
   if(1==1) then ! .and. masterproc ) then
@@ -395,18 +380,21 @@ END IF
          physta%q(    1:pcols,1:pver,l)  = vmr(  1:pcols,1:pver,l2) * adv_mass(l2)/mwdry 
          physta%qqcw( 1:pcols,1:pver,l)  = vmrcw(1:pcols,1:pver,l2) * adv_mass(l2)/mwdry
       end do
+
+      
+      
 IF(.false.) THEN
       print*,'FAB DRIVER'
       print*, 'q apres sox ',l_soag, physta%q(5,2,l_soag),physta%q(5,2,lptr_soa_a_amode(1)), physta%q(5,2,lptr_soa_a_amode(2)) 
       print*, 'q apres num ', physta%q(5,2,17), physta%q(5,2,21), physta%q(5,2,25)
 END IF
       
-! Update GC tracers 
+! Update GC/MAM tracers 
      DO L = 1, State_Grid%NZ
      DO J = 1, State_Grid%NY
      DO I = 1, State_Grid%NX
         n = J + (I-1)*State_Grid%NY
-        do m=1,nmamgc
+        do m=1, nmamgc
           Spc(mamgc(m)%gcind)%Conc(I,J,L) = physta%q(n,l,mamgc(m)%mamind) &
                                           * State_Met%AD(I,J,L)
         end do
@@ -417,10 +405,37 @@ END IF
         Spc(Ind_('H2SO4'))%Conc(I,J,L) = physta%q(n,l,l_h2so4g) &
                                        * State_Met%AD(I,J,L)
 
+! fill state GCMAM state variables, not transported but used in e.g. drydep   
+! harmonize mamgc and GCMAM 
+
+      do m= 1, 4     
+        State_Chm%GCMAM(m)%dryrad(I,J,L) = 0.5_r8*physta%dgncur_a(n,L,m)
+        State_Chm%GCMAM(m)%wetrad(I,J,L) = 0.5_r8*physta%dgncur_awet(n,L,m)
+        State_Chm%GCMAM(m)%aerdens(I,J,L) =  physta%wetdens(n,L,m)         
+       
+      end do 
+
      ENDDO
      ENDDO
      ENDDO
 
+
+! Diagnostic section 
+
+
+! Dev for drydep interface
+!/ elements pris de l'interface ~/cesm222/components/cam/src/chemistry/modal_aero/aero_model.F90        
+
+! rad_aer = volume mean wet radius (m)
+! dgncur_awet = geometric mean wet diameter for number distribution (m)
+!             rad_aer(1:ncol,:) = 0.5_r8*dgncur_awet(1:ncol,:,m)   &
+!                                 *exp(1.5_r8*(alnsg_amode(m)**2))
+! dens_aer(1:ncol,:) = wet density (kg/m3)
+!             dens_aer(1:ncol,:) = wetdens(1:ncol,:,m)
+!             sg_aer(1:ncol,:) = sigmag_amode(m)
+
+     
+     
 !--------- FAB use Aermass to diag total sulfate mass obviously very trmporary 
      State_Chm%AerMass%NIT(:,:,:) = 0.
 

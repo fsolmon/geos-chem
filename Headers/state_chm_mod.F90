@@ -29,7 +29,10 @@ MODULE State_Chm_Mod
   USE Precision_Mod                      ! GEOS-Chem precision types
   USE Registry_Mod                       ! Registry module
   USE Species_Mod                        ! For species database and conc objects
-
+!
+#ifdef MODAL_AERO_4MODE
+  USE MAM_Container_Mod                  ! MAM object
+#endif 
   IMPLICIT NONE
   PRIVATE
 !
@@ -380,7 +383,11 @@ MODULE State_Chm_Mod
      REAL, POINTER      :: CH2O_aq(:)
      REAL, POINTER      :: rlam(:)
 #endif
+!FAB j'essaie un type 
+#ifdef MODAL_AERO_4MODE
+     TYPE(MAMContainer), POINTER :: GCMAM(:) ! MAM data object
 
+#endif 
   END TYPE ChmState
 !
 ! !REMARKS:
@@ -645,10 +652,13 @@ CONTAINS
     ! Add fields for APM microphysics
     State_Chm%PSO4_SO2APM2      => NULL()
 #endif
-
     ! KPP integrator quantities
     State_Chm%KPP_AbsTol        => NULL()
     State_Chm%KPP_RelTol        => NULL()
+#ifdef MODAL_AERO_4MODE
+    State_Chm%GCMAM             => NULL()
+#endif
+
 
   END SUBROUTINE Zero_State_Chm
 !EOC
@@ -1043,7 +1053,16 @@ CONTAINS
           CALL GC_Error( errMsg, RC, thisLoc )
           RETURN
        ENDIF
-       
+#ifdef MODAL_AERO_4MODE
+! FAB  make number of modes interactive, perhaps as a State_Chm variable
+       ALLOCATE( State_Chm%GCMAM(4), STAT=RC )
+         CALL Init_MAM_Container( Input_Opt, State_Grid, State_Chm%GCMAM, RC )
+       IF ( RC /= GC_SUCCESS ) THEN
+          errMsg = 'Error encountered in "Init_MAM_Container" routine!'
+          CALL GC_Error( errMsg, RC, thisLoc )
+          RETURN
+       ENDIF
+#endif 
        !---------------------------------------------------------------------
        ! AeroArea
        !---------------------------------------------------------------------
@@ -3275,6 +3294,13 @@ CONTAINS
        DEALLOCATE( State_Chm%AerMass )
        State_Chm%AerMass => NULL()
     ENDIF
+#ifdef MODAL_AERO_4MODE  
+      IF ( ASSOCIATED( State_Chm%GCMAM ) ) THEN
+       CALL Cleanup_MAM_Container(State_Chm%GCMAM, RC )
+       DEALLOCATE( State_Chm%GCMAM )
+       State_Chm%GCMAM => NULL()
+    ENDIF
+#endif
 
     IF ( ASSOCIATED( State_Chm%AeroArea ) ) THEN
        DEALLOCATE( State_Chm%AeroArea, STAT=RC )

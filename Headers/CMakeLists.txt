@@ -28,7 +28,8 @@ add_library(Headers
   state_diag_mod.F90
   state_grid_mod.F90
   state_met_mod.F90
-)
+  mam_container_mod.F90
+  )
 
 # Define dependencies for libHeaders.a
 target_link_libraries(Headers PUBLIC

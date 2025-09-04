@@ -157,7 +157,7 @@ CONTAINS
     REAL(f4)                    :: wd_rainouteff_luo(3)
 
     ! String arrays
-    CHARACTER(LEN=17)           :: tags(66)
+    CHARACTER(LEN=17)           :: tags(67)
     CHARACTER(LEN=QFYAML_StrLen):: a_str(2)
 
     ! Objects
@@ -229,6 +229,7 @@ CONTAINS
              "KPP_RelTol       ",  &
              "MP_SizeResAer    ",  &
              "MP_SizeResNum    ",  &
+             "MamModId         ",  & !FAB 
              "MW_g             ",  &
              "Radius           ",  &
              "Snk_Horiz        ",  &
@@ -632,6 +633,11 @@ CONTAINS
              CALL QFYAML_Add_Get( yml, key, v_bool, "", RC )
              IF ( RC /= GC_SUCCESS ) GOTO 999
              ThisSpc%MP_SizeResNum = v_bool
+
+          ELSE IF ( INDEX( key, "%MamModId" ) > 0 ) THEN  !FAB
+             CALL QFYAML_Add_Get( yml, key, v_int, "", RC )
+             IF ( RC /= GC_SUCCESS ) GOTO 999
+             ThisSpc%MamModId = v_int
 
           ELSE IF ( INDEX( key, "%MW_g" ) > 0 ) THEN
              CALL QFYAML_Add_Get( yml, key, v_real, "", RC )

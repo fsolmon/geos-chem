@@ -97,7 +97,8 @@ MODULE Species_Mod
      INTEGER            :: RadNuclId        ! Radionuclide index
      INTEGER            :: TracerId         ! Transport tracer index
      INTEGER            :: WetDepId         ! Wet deposition index
-
+     INTEGER            :: MamModId         ! Mode ID for MAM species FAB
+      
      ! Names
      CHARACTER(LEN=31)  :: Name             ! Short name
      CHARACTER(LEN=80)  :: FullName         ! Long name
@@ -428,7 +429,7 @@ CONTAINS
     Spc%RadNuclId       = MISSING_INT
     Spc%TracerId        = MISSING_INT
     Spc%WetDepId        = MISSING_INT
-
+    Spc%MamModId        = MISSING_INT
     ! Reals (floating precision)
     Spc%BackgroundVV    = MISSING
     Spc%DD_DvzAerSnow   = MISSING

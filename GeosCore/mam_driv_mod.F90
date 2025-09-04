@@ -113,7 +113,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
                                lptr_bc_a_amode, lptr_nacl_a_amode,&
                                lptr_pom_a_amode, lptr_soa_a_amode,&
                                lptr_dust_a_amode, lptr_so4_cw_amode,&
-                               modeptr_accum
+                               modeptr_accum, alnsg_amode
  
     use modal_aero_calcsize, only: modal_aero_calcsize_sub
     use modal_aero_wateruptake, only: modal_aero_wateruptake_dr
@@ -409,8 +409,17 @@ END IF
 ! harmonize mamgc and GCMAM 
 
       do m= 1, 4     
-        State_Chm%GCMAM(m)%dryrad(I,J,L) = 0.5_r8*physta%dgncur_a(n,L,m)
-        State_Chm%GCMAM(m)%wetrad(I,J,L) = 0.5_r8*physta%dgncur_awet(n,L,m)
+
+        State_Chm%GCMAM(m)%nudryrad(I,J,L) = 0.5_r8*physta%dgncur_a(n,L,m)   
+
+        State_Chm%GCMAM(m)%nuwetrad(I,J,L) = 0.5_r8*physta%dgncur_awet(n,L,m)   
+
+        ! volume mean geo radius
+        State_Chm%GCMAM(m)%dryrad(I,J,L) = 0.5_r8*physta%dgncur_a(n,L,m)     &
+                                            *exp(3._r8*(alnsg_amode(m)**2))
+        State_Chm%GCMAM(m)%wetrad(I,J,L) = 0.5_r8*physta%dgncur_awet(n,L,m)  &
+                                            *exp(3._r8*(alnsg_amode(m)**2))
+        ! wet aer density
         State_Chm%GCMAM(m)%aerdens(I,J,L) =  physta%wetdens(n,L,m)         
        
       end do 
@@ -419,20 +428,12 @@ END IF
      ENDDO
      ENDDO
 
-
 ! Diagnostic section 
 
 
 ! Dev for drydep interface
-!/ elements pris de l'interface ~/cesm222/components/cam/src/chemistry/modal_aero/aero_model.F90        
+!/ elements pris de l'interface ~/cesm222/components/cam/src/chemistry/modal_aero/aero_model.F90  modal_aero_depvel_part       
 
-! rad_aer = volume mean wet radius (m)
-! dgncur_awet = geometric mean wet diameter for number distribution (m)
-!             rad_aer(1:ncol,:) = 0.5_r8*dgncur_awet(1:ncol,:,m)   &
-!                                 *exp(1.5_r8*(alnsg_amode(m)**2))
-! dens_aer(1:ncol,:) = wet density (kg/m3)
-!             dens_aer(1:ncol,:) = wetdens(1:ncol,:,m)
-!             sg_aer(1:ncol,:) = sigmag_amode(m)
 
      
      

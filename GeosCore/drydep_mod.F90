@@ -1753,7 +1753,21 @@ CONTAINS
                       ! Particle density [kg/m3]
                       DEN   = A_DEN(K)
 #endif
-
+#ifdef MODAL_AERO_4MODE
+!FAB depvel for mam uses the size dependant DUST_SFCRSII
+!modal wet radius and densities are directly passed
+                      IF(SpcInfo%MamModId > 0 ) THEN
+                         IF(SpcInfo%Name(1:5)=='MAMNu')THEN
+                            DIAM =State_Chm%GCMAM(SpcInfo%MamModId)  &
+                                          %nuwetrad(I,J,1)*2.D0     
+                         ELSE 
+                            DIAM  = State_Chm%GCMAM(SpcInfo%MamModId)  &
+                                          %wetrad(I,J,1)*2.D0
+                         END IF  
+                      DEN   = State_Chm%GCMAM(SpcInfo%MamModId)  &
+                                           %aerdens(I,J,1)
+                      END IF                     
+#endif
 #ifdef APM
                       IF(SpcInfo%Name(1:8)=='APMSPBIN')THEN
                          DIAM = RDRY(SpcId-APMIDS%id_SO4BIN1+1)* &

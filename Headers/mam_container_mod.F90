@@ -30,9 +30,13 @@ MODULE Mam_container_Mod
   ! Type for single MAM modes
   !=========================================================================
   TYPE, PUBLIC :: MAMContainer 
-     REAL(fp), POINTER :: dryrad (:,:,:) ! dry radius
-     REAL(fp), POINTER :: wetrad (:,:,:) ! wet radius 
+     REAL(fp), POINTER :: dryrad (:,:,:) ! vol geo mean dry radius
+     REAL(fp), POINTER :: wetrad (:,:,:) ! ------------ wet radius 
+     REAL(fp), POINTER :: nudryrad (:,:,:) !num geo mean dry radius 
+     REAL(fp), POINTER :: nuwetrad (:,:,:) !------------ wet radius 
+
      REAL(fp), POINTER :: aerdens(:,:,:) ! aerosol effective density  
+
   END TYPE MAMContainer 
 
 !------------------------------------------------------------------------------
@@ -106,14 +110,34 @@ CONTAINS
     
     ! dry radius
     do n= 1, 4 
+
+    ALLOCATE(GCMAM(n)%nudryrad( NX, NY, NZ ), STAT=RC )
+    CALL GC_CheckVar( 'NUDRYRAD', 0, RC )
+    IF ( RC /= GC_SUCCESS ) THEN
+       errMsg = 'Error allocating array NUDRYRAD!'
+       CALL GC_Error( errMsg, RC, thisLoc )
+       RETURN
+    ENDIF
+    GCMAM(n)%nudryrad = 0.1E-6_fp
+
+    ALLOCATE(GCMAM(n)%nuwetrad( NX, NY, NZ ), STAT=RC )
+    CALL GC_CheckVar( 'NUWETRAD', 0, RC )
+    IF ( RC /= GC_SUCCESS ) THEN
+       errMsg = 'Error allocating array NUWETRAD!'
+       CALL GC_Error( errMsg, RC, thisLoc )
+       RETURN
+    ENDIF
+    GCMAM(n)%nuwetrad = 0.1E-6_fp
+
     ALLOCATE(GCMAM(n)%dryrad( NX, NY, NZ ), STAT=RC )
-    CALL GC_CheckVar( 'WETRAD', 0, RC )
+    CALL GC_CheckVar( 'DRYRAD', 0, RC )
     IF ( RC /= GC_SUCCESS ) THEN
        errMsg = 'Error allocating array DRYRAD!'
        CALL GC_Error( errMsg, RC, thisLoc )
        RETURN
     ENDIF
-    GCMAM(n)%DRYRAD = 0.0_fp
+    GCMAM(n)%DRYRAD = 0.1E-6_fp
+
     ! wet radius
     ALLOCATE( GCMAM(n)%wetrad( NX, NY, NZ ), STAT=RC )
     CALL GC_CheckVar( 'WETRAD', 0, RC )
@@ -122,9 +146,9 @@ CONTAINS
        CALL GC_Error( errMsg, RC, thisLoc )
        RETURN
     ENDIF
-    GCMAM(n)%WETRAD = 0.0_fp
+    GCMAM(n)%WETRAD = 0.1E-6_fp
 
-    ! wet radius
+    ! 
     ALLOCATE( GCMAM(n)%aerdens( NX, NY, NZ ), STAT=RC )
     CALL GC_CheckVar( 'AERDENS', 0, RC )
     IF ( RC /= GC_SUCCESS ) THEN
@@ -132,7 +156,7 @@ CONTAINS
        CALL GC_Error( errMsg, RC, thisLoc )
        RETURN
     ENDIF
-    GCMAM(n)%AERDENS = 0.0_fp
+    GCMAM(n)%AERDENS = 1500._fp
     end do
  END SUBROUTINE Init_MAM_Container
 
@@ -170,6 +194,20 @@ CONTAINS
     
     DO n= 1,4
     ! Deallocate arrays and nullify pointer
+    IF ( ASSOCIATED( GCMAM(n)%nuwetrad ) ) THEN
+       DEALLOCATE( GCMAM(n)%nuwetRAD, STAT=RC )
+       CALL GC_CheckVar( 'MAM%nuwetrad', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%nuwetrad => NULL()
+    ENDIF
+
+    IF ( ASSOCIATED( GCMAM(n)%nudryrad ) ) THEN
+       DEALLOCATE( GCMAM(n)%nudryrad, STAT=RC )
+       CALL GC_CheckVar( 'MAM%nudryrad', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%nudryrad => NULL()
+    ENDIF
+
     IF ( ASSOCIATED( GCMAM(n)%wetrad ) ) THEN
        DEALLOCATE( GCMAM(n)%wetRAD, STAT=RC )
        CALL GC_CheckVar( 'MAM%wetrad', 2, RC )
@@ -186,7 +224,7 @@ CONTAINS
 
      IF ( ASSOCIATED(GCMAM(n)%aerdens ) ) THEN
        DEALLOCATE( GCMAM(n)%aerdens, STAT=RC )
-       CALL GC_CheckVar( 'MAM%wetrad', 2, RC )
+       CALL GC_CheckVar( 'MAM%aerdens', 2, RC )
        IF ( RC /= GC_SUCCESS ) RETURN
        GCMAM(n)%aerdens => NULL()
     ENDIF

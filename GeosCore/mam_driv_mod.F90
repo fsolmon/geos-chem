@@ -53,13 +53,21 @@ type(physics_buffer_desc), pointer :: pbuf(:)
 type(physics_state) :: physta
 type(physics_ptend) :: ptend
 
-type mamgctrac ! handle species indices in MAM and GC worlds  
-  integer :: gcind  ! in relation to Spc (GC species)
-  integer :: mamind ! in relation to q 
-  character* 8  :: name !GC species name for MAM tracers  
-end type mamgctrac
+! define a specific type to handle MAM/GC prognostic species information.
+! it is a bit similar to State_Chm%SpcData(N)%Info
+! Convenient for communication between MAM and GC worlds for instance 
+! Potentially it could live as a specific subtype of chem_state ? just an idea..
+! Perhaps this type should also be declared in Headers for consistency with GC ? 
 
-type(mamgctrac), pointer :: mamgc(:)
+type, public ::  mamspec ! 
+  integer :: gcind  ! sp index relative to Spc ( GC chemstate species )
+  integer :: mamind ! sp index relative to  q and qw MAM states
+  integer :: modID  ! MAM mode index to which this sp belongs (also used to point to chemstate%GCMAM(mode)%xx)
+  logical :: isnum  ! True if number concentration
+  character* 8  :: name !GC species name for MAM tracers ( has to be consistent with speciesdat.yml)  
+end type mamspec
+
+type(mamspec), pointer :: mamgc(:)
 
 integer nmamgc ! number of GC advected MAM tracers 
 
@@ -428,10 +436,15 @@ END IF
      ENDDO
      ENDDO
 
+      
+     ! call MAM aerosol update for gravitational settling (this call could be somewhere else )        
+     call  MAM_SETTL( Input_Opt,  State_Chm, State_Diag, &
+                          State_Grid, State_Met, RC )
+
 ! Diagnostic section 
 
 
-! Dev for drydep interface
+
 !/ elements pris de l'interface ~/cesm222/components/cam/src/chemistry/modal_aero/aero_model.F90  modal_aero_depvel_part       
 
 
@@ -461,7 +474,7 @@ END IF
 
      State_Chm%AerMass%NIT(:,:,:) = State_Chm%AerMass%NIT(:,:,:)*State_Met%AIRDEN(:,:,:)
 
-
+    Spc => NULL() 
     if (lfirstcall) lfirstcall = .false.
 
   END SUBROUTINE MAM_DRIV 
@@ -541,7 +554,7 @@ call MAM_ALLOCATE ()
 ALLOCATE( PSO4AQ_RATE(State_Grid%NX,State_Grid%NY,State_Grid%NZ) )
 ALLOCATE( H2SO4_RATE(State_Grid%NX,State_Grid%NY,State_Grid%NZ) )
 
-!Initialize MAM4/GC transported tracer indices, convenient 
+!Initialize MAM4/GC transported tracer info  
 !Rq allocate according to MAM option , start with MAM 4 , to be refined 
 nmamgc = 18 
 
@@ -549,6 +562,8 @@ allocate(mamgc(nmamgc))
 mamgc(:)%name ='none'  
 mamgc(:)%gcind =-1 
 mamgc(:)%mamind =-1
+mamgc(:)%modId =-1
+mamgc(:)%isnum = .false.
 
 i=1 ! cumulative index  
 do m = 1 , size(numptr_amode)
@@ -557,6 +572,8 @@ do m = 1 , size(numptr_amode)
   mamgc(i)%name = trim(tmp)  
   mamgc(i)%gcind = Ind_(mamgc(i)%name)
   mamgc(i)%mamind= numptr_amode(m) 
+  mamgc(i)%modId = m
+  mamgc(i)%isnum = .true.
   i=i+1
 end do
 do m = 1 , size(lptr_so4_a_amode)
@@ -565,14 +582,18 @@ do m = 1 , size(lptr_so4_a_amode)
   mamgc(i)%name = trim(tmp)
   mamgc(i)%gcind = Ind_(mamgc(i)%name)
   mamgc(i)%mamind= lptr_so4_a_amode(m)
+  mamgc(i)%modId = m
+  mamgc(i)%isnum = .false.
   i=i+1
 end do
 do m = 1 , size(lptr_bc_a_amode)
-  if (lptr_bc_a_amode(m) < 0) cycle
+  if (lptr_bc_a_amode(m) < 0) cycle !important
   write (tmp,'(A5,I1)')'MAMBC', m
   mamgc(i)%name = trim(tmp)
-  mamgc(i)%gcind = Ind_(mamgc(i)%name)
+  mamgc(i)%gcind = Ind_(mamgc(i)%name) ! FAB mettre un test coherence ici ?
   mamgc(i)%mamind= lptr_bc_a_amode(m)
+  mamgc(i)%modId = m
+  mamgc(i)%isnum = .false.
   i=i+1
 end do
 do m = 1 , size(lptr_pom_a_amode)
@@ -581,6 +602,8 @@ do m = 1 , size(lptr_pom_a_amode)
   mamgc(i)%name = trim(tmp)
   mamgc(i)%gcind = Ind_(mamgc(i)%name)
   mamgc(i)%mamind= lptr_pom_a_amode(m)
+  mamgc(i)%modId = m
+  mamgc(i)%isnum = .false.
   i=i+1
 end do
 do m = 1 , size(lptr_soa_a_amode)
@@ -589,6 +612,8 @@ do m = 1 , size(lptr_soa_a_amode)
   mamgc(i)%name = trim(tmp)
   mamgc(i)%gcind = Ind_(mamgc(i)%name)
   mamgc(i)%mamind= lptr_soa_a_amode(m)
+  mamgc(i)%modId = m
+  mamgc(i)%isnum = .false.
   i=i+1
 end do
 do m = 1 , size(lptr_nacl_a_amode)
@@ -597,6 +622,8 @@ do m = 1 , size(lptr_nacl_a_amode)
   mamgc(i)%name = trim(tmp)
   mamgc(i)%gcind = Ind_(mamgc(i)%name)
   mamgc(i)%mamind= lptr_nacl_a_amode(m)
+  mamgc(i)%modId = m
+  mamgc(i)%isnum = .false.
   i=i+1
 end do
 do m = 1 , size(lptr_dust_a_amode)
@@ -605,13 +632,19 @@ do m = 1 , size(lptr_dust_a_amode)
   mamgc(i)%name = trim(tmp)
   mamgc(i)%gcind = Ind_(mamgc(i)%name)
   mamgc(i)%mamind= lptr_dust_a_amode(m)
+  mamgc(i)%modId = m
+  mamgc(i)%isnum = .false.
   i=i+1
 end do
 
 if (masterproc) then 
+  print*, 'MAM species INFO' 
   print*, mamgc(:)%name
   print*, mamgc(:)%gcind
   print*, mamgc(:)%mamind
+  print*, mamgc(:)%modId 
+  print*, mamgc(:)%isnum
+
 end if        
 
 END SUBROUTINE MAM_INIT        
@@ -1087,7 +1120,7 @@ mfbc4          = 0._r8
               print*,'q init 1 ', q(5,2,:)
       end if
 
-       do k = 1, 40 
+       do k = 1, 72 
          do i = 1, pcols 
             do  n = 1, ntot_amode
 
@@ -1362,48 +1395,229 @@ subroutine load_pbuf( pbuf, lchnk, ncol,  &
       return
       end subroutine unload_pbuf
 
-!----------------------------------------------------------------------
-subroutine gaschem_simple_sub(x,  tau_gaschem_simple      )
+!---------------------------------------------------------------------
 
+!------------------------------------------------------------------------------
+!                  GEOS-Chem Global Chemical Transport Model                  !
+!------------------------------------------------------------------------------
+!BOP
+!
+! !ROUTINE: aero_drydep
+!
+! !DESCRIPTION: Subroutine AERO\_DRYDEP removes size-resolved aerosol number
+!  and mass by dry deposition.  The deposition velocities are calcualted from
+!  drydep_mod.f and only aerosol number NK01-NK30 are really treated as dry
+!  depositing species while each of the mass species are depositing accordingly
+!  with number.
+!\\
+!\\
+! !INTERFACE:
+!
+  SUBROUTINE MAM_SETTL( Input_Opt,  State_Chm, State_Diag, &
+                          State_Grid, State_Met, RC )
+!
 ! !USES:
-!use modal_aero_data
+!
+    USE ErrCode_Mod
+    USE ERROR_MOD
+    USE Input_Opt_Mod,      ONLY : OptInput
+    USE PhysConstants,      ONLY : g0
+    USE PhysConstants,      ONLY : AVO
+    USE PRECISION_MOD
+    USE Species_Mod,        ONLY : SpcConc
+    USE State_Chm_Mod,      ONLY : ChmState
+    USE State_Diag_Mod,     ONLY : DgnState
+    USE State_Grid_Mod,     ONLY : GrdState
+    USE State_Met_Mod,      ONLY : MetState
+    USE TIME_MOD,           ONLY : GET_TS_CHEM
 
-use constituents,      only:  cnst_name, cnst_get_ind
-use chem_mods, only: gas_pcnst
-implicit none
+    IMPLICIT NONE
+!
+! !INPUT PARAMETERS:
+!
+    TYPE(OptInput), INTENT(IN)    :: Input_Opt   ! Input Options object
+    TYPE(GrdState), INTENT(IN)    :: State_Grid  ! Grid State object
+    TYPE(MetState), INTENT(IN)    :: State_Met   ! Meteorology State object
+!
+! !INPUT/OUTPUT PARAMETERS:
+!
+    TYPE(ChmState), INTENT(INOUT) :: State_Chm   ! Chemistry State object
+    TYPE(DgnState), INTENT(INOUT) :: State_Diag  ! Diagnostics State object
 
-! !PARAMETERS:
-   real(r8), intent(in)    :: tau_gaschem_simple(pcols,pver)
-   real(r8), intent(inout) :: x(pcols,pver,gas_pcnst) ! tracer mixing ratio (TMR) array
-                                                   ! *** MUST BE  #/kmol-air for number
-! local variables
-   integer, parameter :: method_soa = 2
-!     method_soa=0 is no uptake
-!     method_soa=1 is irreversible uptake done like h2so4 uptake
-!     method_soa=2 is reversible uptake using subr modal_aero_soaexch
-! FAB not treated here think about it !! 
-   integer :: i
-   integer :: k
-   integer :: i_h2so4g, i_so2g
+! !OUTPUT PARAMETERS:
+!
+    INTEGER,        INTENT(OUT)   :: RC          ! Success or failure?
+!
+! !REVISION HISTORY:
+!  22 Jul 2007 - Win T. - Initial version
+!  See https://github.com/geoschem/geos-chem for complete history
+!EOP
+!------------------------------------------------------------------------------
+!BOC
+!
+! !LOCAL VARIABLES:
 
-   real (r8) :: tmpa, tmpb
 
-   ! set gas species indices
+! !LOCAL VARIABLES:
+!
+    ! SAVEd scalars
+    LOGICAL,  SAVE     :: DOSETTLING = .True.
+    LOGICAL,  SAVE     :: FIRST      = .TRUE.
 
-   i_h2so4g = l_h2so4g - loffset
-   i_so2g = l_so2g - loffset
+    ! Scalars
+    INTEGER            :: I,      J,        L,    n      
+    REAL(fp)           :: DTCHEM, AREA_CM2, FLUX,  X,    Y
+    REAL(fp)           :: DEN,   DP,   PDP
+    REAL(fp)           :: TEMP,   P,        CONST, SLIP, VISC
+    REAL(fp)           :: DELZ,   DELZ1,    TOT1,  TOT2
 
-   do k = 1, pver
-   do i = 1, pcols
-      tmpa = x(i,k,i_so2g)*exp( -deltat/tau_gaschem_simple(i,k) )
-      tmpb = x(i,k,i_so2g) - tmpa
-      x(i,k,i_so2g) = tmpa
-      x(i,k,i_h2so4g) = tmpb
-   end do
-   end do
+    ! Strings
+    CHARACTER(LEN=255) :: LOC, MSG
 
-   return
-   end subroutine gaschem_simple_sub
+    ! Arrays
+    REAL(fp)           :: TC(State_Grid%NZ)
+    REAL(fp)           :: TC0(State_Grid%NZ)
+    REAL(fp)           :: VTS(State_Grid%NZ) ! Settling V [m/s]
+
+    ! Pointers
+    TYPE(SpcConc), POINTER  :: Spc     (:      )
+    REAL(fp),      POINTER  :: BXHEIGHT(:,:,:  )
+    REAL(fp),      POINTER  :: T       (:,:,:  )
+
+    !=================================================================
+    ! MAM_SETTL begins here!
+    !=================================================================
+
+    ! DTCHEM is the chemistry timestep in seconds
+    DTCHEM    = GET_TS_CHEM()
+
+    ! Initialize pointers
+    Spc      => State_Chm%Species
+    BXHEIGHT => State_Met%BXHEIGHT
+    T        => State_Met%T
+
+    !---------- GRAVITATIONAL SETTLING -------------
+    !
+    ! First calculate vertical movement and removal by
+    ! gravitational settling
+    !
+    ! Clarify units:
+    !
+    !      v_settling = rho   * Dp**2  *  g    *  C
+    !                  -----------------------------
+    !                   18    *  visc
+    ! [units]
+    !         m/s    = kg/m^3 *  m^2   * m/s^2  * -
+    !                  -----------------------------
+    !                    -    * kg/m/s
+    !
+    ! NOTES:
+    ! (1 ) Pa s = kg/m/s
+    ! (2 ) Slip correction factor is unitless, however, the
+    !      equation from Hinds' Aerosol Technology that is
+    !      a function of P and Dp needs the correct units
+    !      P [=] kPa and Dp [=] um
+
+    IF ( DOSETTLING ) THEN
+      if (masterproc) print*, 'END MAM SETTLING', maxval(Spc(mamgc(1)%gcind)%Conc), maxval(Spc(mamgc(3)%gcind)%Conc)
+
+       !$OMP PARALLEL DO       &
+       !$OMP DEFAULT( SHARED ) &
+       !$OMP PRIVATE( N, I, J, DP, DEN, CONST, L, P, TEMP )   &
+       !$OMP PRIVATE( PDP, SLIP, VISC, VTS, JC, ID, TC0, TC )   &
+       !$OMP PRIVATE( DELZ, DELZ1, AREA_CM2, TOT1, TOT2, FLUX ) &
+       !$OMP SCHEDULE( DYNAMIC )
+       DO I = 1, State_Grid%NX
+       DO J = 1, State_Grid%NY
+       DO n = 1 , nmamgc
+
+          DO L = 1, State_Grid%NZ
+             
+               IF(mamgc(n)%isnum) THEN
+                   DP =State_Chm%GCMAM(mamgc(n)%ModId)  &
+                                          %nuwetrad(I,J,L)*2.D6 ![=] um
+               ELSE
+                   DP  = State_Chm%GCMAM(mamgc(n)%ModId)  &
+                                          %wetrad(I,J,L)*2.D6 ![=] um
+               END IF
+                   DEN   = State_Chm%GCMAM(mamgc(n)%ModId)  &
+                                           %aerdens(I,J,L)
+
+               CONST = DEN *  (DP*1.d-6)**2.d0 * g0 / 18.d0
+             ! Get P [kPa], T [K], and P*DP
+             ! Use moist pressure for mean free path (ewl, 3/2/2015)
+               P    = State_Met%PMID(I,J,L) * 0.1d0  ![=] kPa
+               TEMP = T(I,J,L)          ![=] K
+               PDP  = P * DP
+
+             !=====================================================
+             ! # air molecule number density
+             ! num = P * 1d3 * 6.023d23 / (8.314 * Temp)
+             !
+             ! # gas mean free path
+             ! lamda = 1.d6 /
+             !     &   ( 1.41421 * num * 3.141592 * (3.7d-10)**2 )
+             !
+             ! # Slip correction
+             ! Slip = 1. + 2. * lamda * (1.257 + 0.4 *
+             !      &  exp( -1.1 * Dp / (2. * lamda))) / Dp
+             !=====================================================
+             ! NOTE, Slip correction factor calculations following
+             !       Seinfeld, pp464 which is thought to be more
+             !       accurate but more computation required.
+             !=====================================================
+
+             ! Slip correction factor as function of (P*dp)
+             SLIP = 1d0 + ( 15.60d0 + 7.0d0 * EXP(-0.059d0*PDP) ) / PDP
+
+             !=====================================================
+             ! NOTE, Eq) 3.22 pp 50 in Hinds (Aerosol Technology)
+             ! which produce slip correction factor with small
+             ! error compared to the above with less computation.
+             !=====================================================
+
+             ! Viscosity [Pa s] of air as a function of temp (K)
+             ! Sutherland eqn. (ref. pp 25 in Hinds (Aerosol Technology)
+             VISC = 1.458d-6 * (TEMP)**(1.5d0) / ( TEMP + 110.4d0 )
+
+             ! Settling velocity [m/s]
+             VTS(L) = CONST * SLIP / VISC
+
+             ! Method is to solve bidiagonal matrix
+             ! which is implicit and first order accurate in Z
+
+             TC0(L) = Spc(mamgc(n)%gcind)%Conc(I,J,L)
+             TC(L)  = TC0(L)
+          ENDDO  !L-loop
+
+          ! We know the boundary condition at L = model top
+          L     = State_Grid%MaxChemLev
+          DELZ  = BXHEIGHT(I,J,L)           ![=] meter, model top
+          TC(L) = TC(L) / ( 1.d0 + DTCHEM * VTS(L) / DELZ )
+
+          DO L = State_Grid%MaxChemLev-1, 1, -1
+                DELZ  = BXHEIGHT(I,J,L)
+                DELZ1 = BXHEIGHT(I,J,L+1)
+                TC(L) = 1.d0 / &
+                      ( 1.d0   + DTCHEM * VTS(L)   / DELZ ) * &
+                      ( TC(L)  + DTCHEM * VTS(L+1) / DELZ1  *  TC(L+1) )
+          ENDDO
+
+          DO L = 1, State_Grid%NZ
+                Spc(mamgc(n)%gcind)%Conc(I,J,L) = TC(L)
+          ENDDO
+
+
+       ENDDO  ! MAMGC species (transported MAM species) 
+       ENDDO  ! I-loop
+       ENDDO  ! J-loop
+       !$OMP END PARALLEL DO
+  
+       if (masterproc) print*, 'END MAM SETTLING', maxval(Spc(mamgc(1)%gcind)%Conc), maxval(Spc(mamgc(3)%gcind)%Conc) 
+    ENDIF  ! DOSETTLING
+
+END SUBROUTINE MAM_SETTL
+
 
 
 END MODULE MAM_DRIV_MOD

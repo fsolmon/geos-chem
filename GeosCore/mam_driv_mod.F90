@@ -61,10 +61,12 @@ type(physics_ptend) :: ptend
 
 type, public ::  mamspec ! 
   integer :: gcind  ! sp index relative to Spc ( GC chemstate species )
-  integer :: mamind ! sp index relative to  q and qw MAM states
+  integer :: gcindcb  ! cloudborne sp index relative to Spc ( GC chemstate species )
+  integer :: mamind ! sp index relative to both q and qqcw MAM states 
   integer :: modID  ! MAM mode index to which this sp belongs (also used to point to chemstate%GCMAM(mode)%xx)
-  logical :: isnum  ! True if number concentration
-  character* 8  :: name !GC species name for MAM tracers ( has to be consistent with speciesdat.yml)  
+  logical :: isnum  ! True if number concentration vs mass concentration
+  character* 12  :: name !GC species name for MAM tracers ( ABSOLUTLY must be consistent with speciesdat.yml)  
+  character* 12  :: namecb !GC species name for MAM cloudborne sp ( ABSOLUTLY must be consistent with speciesdat.yml)
 end type mamspec
 
 type(mamspec), pointer :: mamgc(:)
@@ -87,7 +89,7 @@ integer nmamgc ! number of GC advected MAM tracers
 CONTAINS
 !EOC
 !------------------------------------------------------------------------------
-!                  GEOS-Chem Global Chemical Transport Model                  !
+!                  GEOS-/Chem Global Chemical Transport Model                  !
 !------------------------------------------------------------------------------
 !BOP
 !
@@ -242,7 +244,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
      END DO
 
     if (.not. lfirstcall) then 
-     ! load q state aerosol variables 
+     ! load q and qqcw mam state aerosol variables 
     DO L = 1, State_Grid%NZ
     DO J = 1, State_Grid%NY
     DO I = 1, State_Grid%NX ! GEOS-Chem vertical grid is bottom-up
@@ -251,6 +253,9 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
         !number concentrations #/gridbox and convert to #/kg 
         !mass concentrations Kg/gridbox to Kg/Kg (mixing ratios) 
         physta%q(n,l,mamgc(m)%mamind) = Spc(mamgc(m)%gcind)%Conc(I,J,L)/State_Met%AD(I,J,L) !
+        !
+        physta%qqcw(n,l,mamgc(m)%mamind) = Spc(mamgc(m)%gcindcb)%Conc(I,J,L)/State_Met%AD(I,J,L) !
+
      end do  
     END DO
     END DO
@@ -274,7 +279,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
 
 
 ! CALCSIZE INTERFACE     
-    
+     
 call load_pbuf( pbuf, lchnk, pcols, &
         physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens )
 
@@ -288,10 +293,14 @@ call load_pbuf( pbuf, lchnk, pcols, &
       call unload_pbuf( pbuf, lchnk, pcols, &
          physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens )
 !
-! apply tendencies ! note ptend.lq can be modified by calcsize
-! not sure this loop is optimal 
+! apply tendencies ! note ptend.lq is modified by calcsize
+! note also that the cloudborne state is supposed to be directly updated in calcsize
+! (perhaps because unlinke q , qqcw is not an advected state in cesm and the tendencie does not need to be 
+!  passed up ...
+!  
       do l = 1, pcnst
          if ( .not. ptend%lq(l) ) cycle
+         print* , 'FAB YES ptend%lq', ptend%lq(l), maxval(ptend%q(:,:,l))
          do k = 1, pver
          do i = 1, pcols 
             physta%q(i,k,l) = physta%q(i,k,l) + ptend%q(i,k,l)*deltat  
@@ -304,6 +313,7 @@ call load_pbuf( pbuf, lchnk, pcols, &
       physta%ncol = pcols      
 
 ! WATER UPTAKE    
+      print* , 'FAB cldfrac', maxval(physta%cld)
      call load_pbuf( pbuf, lchnk, pcols, &
         physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens )
 !
@@ -397,13 +407,16 @@ IF(.false.) THEN
       print*, 'q apres num ', physta%q(5,2,17), physta%q(5,2,21), physta%q(5,2,25)
 END IF
       
-! Update GC/MAM tracers 
+! Update GC/MAM species 
      DO L = 1, State_Grid%NZ
      DO J = 1, State_Grid%NY
      DO I = 1, State_Grid%NX
         n = J + (I-1)*State_Grid%NY
+        !both for interstitial and cloudborne states
         do m=1, nmamgc
           Spc(mamgc(m)%gcind)%Conc(I,J,L) = physta%q(n,l,mamgc(m)%mamind) &
+                                          * State_Met%AD(I,J,L)
+          Spc(mamgc(m)%gcindcb)%Conc(I,J,L) = physta%qqcw(n,l,mamgc(m)%mamind) &
                                           * State_Met%AD(I,J,L)
         end do
 
@@ -413,7 +426,7 @@ END IF
         Spc(Ind_('H2SO4'))%Conc(I,J,L) = physta%q(n,l,l_h2so4g) &
                                        * State_Met%AD(I,J,L)
 
-! fill state GCMAM state variables, not transported but used in e.g. drydep   
+! fill state GCMAM state variables,  used in e.g. drydep   
 ! harmonize mamgc and GCMAM 
 
       do m= 1, 4     
@@ -520,14 +533,14 @@ SUBROUTINE MAM_INIT( Input_Opt, State_Chm,  State_Diag, State_Grid, RC )
 
     integer :: species_class(pcnst) = -1
     integer  :: m , i 
-    character * 8 :: tmp
+    character * 12 :: tmp
 
     
     
 !-------initialise namelist parameters
 
    mdo_gaschem=1
-   mdo_cloudchem =1
+   mdo_cloudchem =0
 
    mdo_gasaerexch=1
    mdo_rename=1
@@ -561,16 +574,26 @@ nmamgc = 18
 allocate(mamgc(nmamgc)) 
 mamgc(:)%name ='none'  
 mamgc(:)%gcind =-1 
+mamgc(:)%namecb ='none'
+mamgc(:)%gcindcb =-1
 mamgc(:)%mamind =-1
 mamgc(:)%modId =-1
 mamgc(:)%isnum = .false.
 
+
+! Rq handling of cb information here relies on the fact that
+! numptr_amode(:) = numptr_cwamode(:) in MAM/modal_aero_initialize_data.F90
+! so there is just one similar mamind that point to MAM q and qqcw states
+! in GC workd species indices pointing to interstitial and cloudborne are of course different
 i=1 ! cumulative index  
 do m = 1 , size(numptr_amode)
   if (numptr_amode(m) < 0) cycle 
   write (tmp,'(A5,I1)')'MAMNu', m
   mamgc(i)%name = trim(tmp)  
   mamgc(i)%gcind = Ind_(mamgc(i)%name)
+  write (tmp,'(A7,I1)')'MAMCBNu', m
+  mamgc(i)%namecb = trim(tmp)
+  mamgc(i)%gcindcb = Ind_(mamgc(i)%namecb)
   mamgc(i)%mamind= numptr_amode(m) 
   mamgc(i)%modId = m
   mamgc(i)%isnum = .true.
@@ -581,6 +604,9 @@ do m = 1 , size(lptr_so4_a_amode)
   write (tmp,'(A6,I1)')'MAMSO4', m
   mamgc(i)%name = trim(tmp)
   mamgc(i)%gcind = Ind_(mamgc(i)%name)
+  write (tmp,'(A8,I1)')'MAMCBSO4', m
+  mamgc(i)%namecb = trim(tmp)
+  mamgc(i)%gcindcb = Ind_(mamgc(i)%namecb)
   mamgc(i)%mamind= lptr_so4_a_amode(m)
   mamgc(i)%modId = m
   mamgc(i)%isnum = .false.
@@ -591,6 +617,9 @@ do m = 1 , size(lptr_bc_a_amode)
   write (tmp,'(A5,I1)')'MAMBC', m
   mamgc(i)%name = trim(tmp)
   mamgc(i)%gcind = Ind_(mamgc(i)%name) ! FAB mettre un test coherence ici ?
+  write (tmp,'(A7,I1)')'MAMCBBC', m
+  mamgc(i)%namecb = trim(tmp)
+  mamgc(i)%gcindcb = Ind_(mamgc(i)%namecb)
   mamgc(i)%mamind= lptr_bc_a_amode(m)
   mamgc(i)%modId = m
   mamgc(i)%isnum = .false.
@@ -599,8 +628,11 @@ end do
 do m = 1 , size(lptr_pom_a_amode)
   if (lptr_pom_a_amode(m) < 0) cycle
   write (tmp,'(A6,I1)')'MAMPOM', m
-  mamgc(i)%name = trim(tmp)
+  mamgc(i)%name = trim(tmp) 
   mamgc(i)%gcind = Ind_(mamgc(i)%name)
+  write (tmp,'(A8,I1)')'MAMCBPOM', m
+  mamgc(i)%namecb = trim(tmp)
+  mamgc(i)%gcindcb = Ind_(mamgc(i)%namecb)
   mamgc(i)%mamind= lptr_pom_a_amode(m)
   mamgc(i)%modId = m
   mamgc(i)%isnum = .false.
@@ -610,6 +642,9 @@ do m = 1 , size(lptr_soa_a_amode)
   if (lptr_soa_a_amode(m) < 0) cycle
   write (tmp,'(A6,I1)')'MAMSOA', m
   mamgc(i)%name = trim(tmp)
+  write (tmp,'(A8,I1)')'MAMCBSOA', m
+  mamgc(i)%namecb = trim(tmp)
+  mamgc(i)%gcindcb = Ind_(mamgc(i)%namecb)
   mamgc(i)%gcind = Ind_(mamgc(i)%name)
   mamgc(i)%mamind= lptr_soa_a_amode(m)
   mamgc(i)%modId = m
@@ -621,6 +656,9 @@ do m = 1 , size(lptr_nacl_a_amode)
   write (tmp,'(A7,I1)')'MAMSSLT', m
   mamgc(i)%name = trim(tmp)
   mamgc(i)%gcind = Ind_(mamgc(i)%name)
+  write (tmp,'(A9,I1)')'MAMCBSSLT', m
+  mamgc(i)%namecb = trim(tmp)
+  mamgc(i)%gcindcb = Ind_(mamgc(i)%namecb)
   mamgc(i)%mamind= lptr_nacl_a_amode(m)
   mamgc(i)%modId = m
   mamgc(i)%isnum = .false.
@@ -631,6 +669,9 @@ do m = 1 , size(lptr_dust_a_amode)
   write (tmp,'(A7,I1)')'MAMDUST', m
   mamgc(i)%name = trim(tmp)
   mamgc(i)%gcind = Ind_(mamgc(i)%name)
+  write (tmp,'(A9,I1)')'MAMCBDUST', m
+  mamgc(i)%namecb = trim(tmp)
+  mamgc(i)%gcindcb = Ind_(mamgc(i)%namecb)
   mamgc(i)%mamind= lptr_dust_a_amode(m)
   mamgc(i)%modId = m
   mamgc(i)%isnum = .false.

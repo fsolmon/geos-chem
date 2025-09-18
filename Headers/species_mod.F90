@@ -121,7 +121,7 @@ MODULE Species_Mod
      LOGICAL            :: Is_Tracer        ! Is it a transport tracer?
      LOGICAL            :: Is_WetDep        ! Is it wet-deposited?
      LOGICAL            :: Is_InRestart     ! Is it in the restart file?
-
+     LOGICAL            :: Is_CloudBorne    ! Is it cloud_borne (MAM)/activated FAB  
      ! Molecular weights
      REAL(fp)           :: MW_g             ! Species molecular weight [g/mol]
 
@@ -412,7 +412,7 @@ CONTAINS
     Spc%WD_Is_HNO3      = MISSING_BOOL
     Spc%WD_Is_SO2       = MISSING_BOOL
     Spc%WD_LiqAndGas    = MISSING_BOOL
-
+    Spc%Is_CloudBorne   = MISSING_BOOL
     ! Integers
     Spc%AdvectId        = MISSING_INT
     Spc%AerosolId       = MISSING_INT
@@ -700,6 +700,7 @@ CONTAINS
           IF ( ThisSpc%WD_Is_SO2 ) THEN
              WRITE( 6, 130 ) "WD_Is_SO2      ",  ThisSpc%WD_Is_SO2
           ENDIF
+
        ENDIF
 
        !--------------------------------------------------------------------
@@ -747,6 +748,11 @@ CONTAINS
        IF ( ThisSpc%Is_HgP ) THEN
           WRITE( 6, 130 )    "Is_HgP         ",  ThisSpc%Is_HgP
        ENDIF
+
+       IF ( ThisSpc%Is_CloudBorne ) THEN
+          WRITE( 6, 130 )    "Is_CloudBorne   ",  ThisSpc%Is_HgP
+       ENDIF
+
 
        !--------------------------------------------------------------------
        ! Print default background concentration

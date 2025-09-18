@@ -157,7 +157,7 @@ CONTAINS
     REAL(f4)                    :: wd_rainouteff_luo(3)
 
     ! String arrays
-    CHARACTER(LEN=17)           :: tags(67)
+    CHARACTER(LEN=17)           :: tags(68)
     CHARACTER(LEN=QFYAML_StrLen):: a_str(2)
 
     ! Objects
@@ -225,6 +225,7 @@ CONTAINS
              "Is_RadioNuclide  ",  &
              "Is_WetDep        ",  &
              "Is_Tracer        ",  &
+             "Is_CloudBorne    ",  &
              "KPP_AbsTol       ",  &
              "KPP_RelTol       ",  &
              "MP_SizeResAer    ",  &
@@ -307,7 +308,6 @@ CONTAINS
 
        ! Species name
        spc = species_names(S)
-
        !--------------------------------------------------------------------
        ! If the species is a "dummy" species (i.e. used for bookkeeping in
        ! KPP rxns), then flag it as such and skip to the next species
@@ -339,7 +339,6 @@ CONTAINS
           ThisSpc%AdvectId    = SpcCount%nAdvect
           ThisSpc%Is_Advected = v_bool
        ENDIF
-
        !--------------------------------------------------------------------
        ! Set tags for species in the KPP mechanism
        !-------------------------------------------------------------------
@@ -636,6 +635,11 @@ CONTAINS
 
           ELSE IF ( INDEX( key, "%MamModId" ) > 0 ) THEN  !FAB
              CALL QFYAML_Add_Get( yml, key, v_int, "", RC )
+             IF ( RC /= GC_SUCCESS ) GOTO 999
+             ThisSpc%MamModId = v_int
+
+          ELSE IF ( INDEX( key, "%Is_CloudBorne" ) > 0 ) THEN  !FAB
+             CALL QFYAML_Add_Get( yml, key, v_bool, "", RC )
              IF ( RC /= GC_SUCCESS ) GOTO 999
              ThisSpc%MamModId = v_int
 

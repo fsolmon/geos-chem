@@ -1674,7 +1674,7 @@ CONTAINS
     ! Scalars
     REAL(fp)               :: L2G, DZ, SO2LOSS
     REAL(f8)               :: K0,  CR, pKa
-#ifdef APM
+#if defined(APM) || defined (MODAL_AERO_4MODE)
     REAL(fp)               :: RIN
 #endif
 #ifdef LUO_WETDEP
@@ -1897,6 +1897,23 @@ CONTAINS
        IF(SpcInfo%Name(1:8)=='APMCTDST')THEN
           RIN = MWSIZE3D(I,J,1,3)
        ENDIF
+       CALL WASHFRAC_APMSIZE_AEROSOL(RIN, DT, F, PP, TK, WASHFRAC)
+#endif
+!FAB 
+#ifdef MODAL_AERO_4MODE
+       ! Washout is a kinetic process
+       KIN = .TRUE.
+       RIN = 0.0_fp
+       IF(SpcInfo%MamModId > 0 ) THEN
+            IF(SpcInfo%MP_SizeResNum)THEN
+             RIN =State_Chm%GCMAM(SpcInfo%MamModId)  &
+                                          %nuwetrad(I,J,L)
+            ELSEIF(SpcInfo%MP_SizeResAer) THEN
+             RIN  = State_Chm%GCMAM(SpcInfo%MamModId)  &
+                                          %wetrad(I,J,L)
+            END IF
+       ENDIF
+       ! here use the same as APN    
        CALL WASHFRAC_APMSIZE_AEROSOL(RIN, DT, F, PP, TK, WASHFRAC)
 #endif
 #ifdef TOMAS
@@ -2639,7 +2656,8 @@ CONTAINS
     ENDIF
 
   END FUNCTION WASHFRAC_HNO3
-#ifdef APM
+#if defined(APM) || defined (MODAL_AERO_4MODE) 
+!FAB
 !------------------------------------------------------------------------------
 !                  GEOS-Chem Global Chemical Transport Model                  !
 !------------------------------------------------------------------------------
@@ -2796,7 +2814,6 @@ CONTAINS
     !=================================================================
     ! WASHFRAC_APMSIZE_AEROSOL begins here!
     !=================================================================
-
     WASHFRAC = 0d0
     IF ( TK >= 268d0 ) THEN
        IF ( F > 0d0 ) THEN
@@ -2842,7 +2859,6 @@ CONTAINS
        WASHFRAC = 0e+0_fp
 
     ENDIF
-
   END SUBROUTINE WASHFRAC_APMSIZE_AEROSOL
 #endif
 !EOC
@@ -4087,6 +4103,12 @@ CONTAINS
        ! Get the species ID from the wetdep ID
        N = State_Chm%Map_WetDep(NW)
 
+#ifdef MODAL_AERO_4MODE
+!FAB rainout applies only to MAM and cloud borne-state species 
+!cycle if not
+       IF (State_Chm%SpcData(N)%Info%MamModId > 0 .and.                   &
+         .not. State_Chm%SpcData(N)%Info%Is_CloudBorne) cycle
+#endif
        ! Call subroutine RAINOUT to comptue the fraction
        ! of species lost to rainout in grid box (I,J,L)
        CALL RAINOUT( I, J, L, N, K_RAIN, DT, F_RAINOUT, RAINFRAC,            &
@@ -4659,7 +4681,9 @@ CONTAINS
           ELSE
              DSpc(NW,L,I,J) = DSpc(NW,L+1,I,J) + WETLOSS
           ENDIF
-
+          !FAB try the heamos comment bugfix
+          DSpc(NW,L,I,J) = max(0._fp , DSpc(NW,L,I,J))
+          !
           !-----------------------------------------------------------------
           ! HISTORY (aka netCDF diagnostics)
           !

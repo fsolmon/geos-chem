@@ -193,7 +193,8 @@ CONTAINS
     SpcCount%nHg0     = 0
     SpcCount%nHg2     = 0
     SpcCount%nHgP     = 0
-
+!FAB 
+    SpcCount%nMam     = 0
     ! Species database tags to match
     tags = (/"Background_VV    ",  &
              "DD_AeroDryDep    ",  &
@@ -637,6 +638,8 @@ CONTAINS
              CALL QFYAML_Add_Get( yml, key, v_int, "", RC )
              IF ( RC /= GC_SUCCESS ) GOTO 999
              ThisSpc%MamModId = v_int
+             SpcCount%nMam  = SpcCount%nMam + 1
+             ThisSpc%MamId  = SpcCount%nMam             
 
           ELSE IF ( INDEX( key, "%Is_CloudBorne" ) > 0 ) THEN  !FAB
              CALL QFYAML_Add_Get( yml, key, v_bool, "", RC )

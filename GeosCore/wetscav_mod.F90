@@ -888,6 +888,21 @@ CONTAINS
        ENDDO
        ENDDO
 #endif
+#ifdef MODAL_AERO_4MODE
+    ! FAB interstitial state is scavenged by convective clouds
+    ! cloud-borne state is supposed to be tied to stratiform (LS) 
+    ! cloud only. Since aerosols aere internally mixed in a given mode 
+    ! scavenging efficiency should be defined according to the mode 
+    ! ( more or less hydrophilic) in species_database.yml ...perhaps hat could b    
+    !  revisisited accoutning for modal composition or effective hygroscopicity ..     
+   
+       IF(SpcInfo%MamModId > 0 .and. .not.SpcInfo%Is_CloudBorne) THEN 
+          CALL F_AEROSOL( KC, KcScale, Input_Opt, State_Grid, State_Met, F )
+            IF ( SpcInfo%WD_AerScavEff > 0.0_fp ) THEN
+               F = F * SpcInfo%WD_AerScavEff
+            ENDIF
+       END IF
+#endif 
 
     !-----------------------------------------------------------
     ! Size-resolved aerosol number
@@ -917,6 +932,15 @@ CONTAINS
        ENDDO
        ENDDO
 #endif
+#ifdef MODAL_AERO_4MODE
+    ! FAB apply also for number concentrations  SpcInfo%MP_SizeResNum   
+       IF(SpcInfo%MamModId > 0 .and. .not.SpcInfo%Is_CloudBorne) THEN
+          CALL F_AEROSOL( KC, KcScale, Input_Opt, State_Grid, State_Met, F )
+            IF ( SpcInfo%WD_AerScavEff > 0.0_fp ) THEN
+               F = F * SpcInfo%WD_AerScavEff
+            ENDIF
+       END IF
+#endif 
 
     !-----------------------------------------------------------
     ! Soluble aerosol species (non-size-resolved)
@@ -1901,20 +1925,19 @@ CONTAINS
 #endif
 !FAB 
 #ifdef MODAL_AERO_4MODE
-       ! Washout is a kinetic process
-       KIN = .TRUE.
-       RIN = 0.0_fp
-       IF(SpcInfo%MamModId > 0 ) THEN
-            IF(SpcInfo%MP_SizeResNum)THEN
-             RIN =State_Chm%GCMAM(SpcInfo%MamModId)  &
+       ! wahout only applies to MAM species and intersticial state
+       IF(SpcInfo%MamModId > 0 .and. .not.SpcInfo%Is_CloudBorne) THEN                
+           KIN = .TRUE.
+           RIN = 0.0_fp
+           IF(SpcInfo%MP_SizeResNum)THEN
+              RIN =State_Chm%GCMAM(SpcInfo%MamModId)  &
                                           %nuwetrad(I,J,L)
             ELSEIF(SpcInfo%MP_SizeResAer) THEN
-             RIN  = State_Chm%GCMAM(SpcInfo%MamModId)  &
+              RIN  = State_Chm%GCMAM(SpcInfo%MamModId)  &
                                           %wetrad(I,J,L)
             END IF
+            CALL WASHFRAC_APMSIZE_AEROSOL(RIN, DT, F, PP, TK, WASHFRAC)
        ENDIF
-       ! here use the same as APN    
-       CALL WASHFRAC_APMSIZE_AEROSOL(RIN, DT, F, PP, TK, WASHFRAC)
 #endif
 #ifdef TOMAS
        ! Washout is a kinetic process
@@ -4299,6 +4322,7 @@ CONTAINS
     USE Input_Opt_Mod,  ONLY : OptInput              ! Input options
     USE Species_Mod,    ONLY : SpcConc               ! Species conc pointer array
     USE State_Chm_Mod,  ONLY : ChmState              ! Chemistry State object
+    USE State_Chm_Mod,  ONLY : Ind_
     USE State_Diag_Mod, ONLY : DgnState              ! Diagnostic State object
     USE State_Grid_Mod, ONLY : GrdState              ! Grid State object
     USE State_Met_Mod,  ONLY : MetState              ! Met State object
@@ -4602,7 +4626,16 @@ CONTAINS
              State_Chm%PSO4_SO2APM2(I,J,L) =                                 &
              State_Chm%PSO4_SO2APM2(I,J,L) + GAINED * 96e+0_fp / 64e+0_fp
 #endif
+#ifdef MODAL_AERO_4MODE
+! FAB assume that SO4 is released in the accumulation mode                          
+             Spc(Ind_('MAMSO41'))%Conc(I,J,L) =                                 &
+             Spc(Ind_('MAMSO41'))%Conc(I,J,L) + GAINED * 96e+0_fp / 64e+0_fp
+! Update also number              
+             Spc(Ind_('MAMNu1'))%Conc(I,J,L) =                                 &
+             Spc(Ind_('MAMNu1'))%Conc(I,J,L) + GAINED * 96e+0_fp / 64e+0_fp *  &
+                                   State_Chm%GCMAM(1)%vol2num / 1700e+0_fp  
 
+#endif
              Spc(N)%Conc(I,J,L) = Spc(N)%Conc(I,J,L) * ( 1e+0_fp - WASHFRAC )
 
 

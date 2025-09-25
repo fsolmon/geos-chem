@@ -1304,7 +1304,6 @@ subroutine modal_aero_calcsize_sub(state, ptend, deltat, pbuf, do_adjust_in, &
    !
    do l = 1, pcnst
       lc = l
-      print*, 'FAB in calcsize', minval(dqqcwdt(:,:,lc)),  maxval(dqqcwdt(:,:,lc))  
       if ( lc>0 .and. dotendqqcw(lc) ) then
          fldcw=> qqcw_get_field(pbuf,l,lchnk)
          do k = top_lev, pver

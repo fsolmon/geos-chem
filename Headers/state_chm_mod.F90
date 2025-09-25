@@ -90,7 +90,8 @@ MODULE State_Chm_Mod
      INTEGER                    :: nTomasBins           ! # of bins for TOMAS
      INTEGER                    :: nTracer              ! # of transport tracers
      INTEGER                    :: nWetDep              ! # wetdep species
-
+!FAB
+     INTEGER                    :: nMam                ! # MAM species
      !-----------------------------------------------------------------------
      ! Mapping vectors to subset types of species
      !-----------------------------------------------------------------------
@@ -115,7 +116,8 @@ MODULE State_Chm_Mod
      INTEGER,           POINTER :: Map_Tracer (:      ) ! Transport tracer IDs
      INTEGER,           POINTER :: Map_WetDep (:      ) ! Wetdep species IDs
      INTEGER,           POINTER :: Map_WL     (:      ) ! Wavelength bins in fjx
-
+!FAB 
+     INTEGER,           POINTER :: Map_Mam     (:      ) ! Wavelength bins in fjx
      !-----------------------------------------------------------------------
      ! Physical properties & indices for each species
      !-----------------------------------------------------------------------
@@ -478,7 +480,7 @@ CONTAINS
     State_Chm%nOmitted          =  0
     State_Chm%nSpecies          =  0
     State_Chm%nWetDep           =  0
-
+    State_Chm%nMam              =  0
     ! Mapping vectors
     State_Chm%Map_Advect        => NULL()
     State_Chm%Map_Aero          => NULL()
@@ -499,8 +501,9 @@ CONTAINS
     State_Chm%Map_Tracer        => NULL()
     State_Chm%Map_WetDep        => NULL()
     State_Chm%Map_WL            => NULL()
-
-    ! Species-based quantities
+   !FAB
+    State_Chm%Map_Mam            => NULL()
+   ! Species-based quantities
     State_Chm%SpcData           => NULL()
     State_Chm%Species           => NULL()
     State_Chm%BoundaryCond      => NULL()
@@ -849,6 +852,8 @@ CONTAINS
     State_Chm%nRadNucl = SpcCount%nRadNucl
     State_Chm%nTracer  = SpcCount%nTracer
     State_Chm%nWetDep  = SpcCount%nWetDep
+! FAB ifdef ?
+    State_Chm%nMam  = SpcCount%nMam   
 
 #if defined (TOMAS12)
     State_Chm%nTomasBins = 12
@@ -1056,7 +1061,8 @@ CONTAINS
 #ifdef MODAL_AERO_4MODE
 ! FAB  make number of modes interactive, perhaps as a State_Chm variable
        ALLOCATE( State_Chm%GCMAM(4), STAT=RC )
-         CALL Init_MAM_Container( Input_Opt, State_Grid, State_Chm%GCMAM, RC )
+         CALL Init_MAM_Container( Input_Opt, State_Grid,State_Chm%SpcDATA, &
+                                  State_Chm%GCMAM, RC )
        IF ( RC /= GC_SUCCESS ) THEN
           errMsg = 'Error encountered in "Init_MAM_Container" routine!'
           CALL GC_Error( errMsg, RC, thisLoc )
@@ -2639,6 +2645,14 @@ CONTAINS
        State_Chm%Map_WL = 0
     ENDIF
 
+!FAB 
+    IF ( State_Chm%nMam > 0 ) THEN
+       ALLOCATE( State_Chm%Map_Mam(State_Chm%nMam), STAT=RC )
+       CALL GC_CheckVar( 'State_Chm%Map_Mam', 0, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       State_Chm%Map_Mam = 0
+    ENDIF
+
     !========================================================================
     ! Set up the species mapping vectors
     !========================================================================
@@ -2770,6 +2784,12 @@ CONTAINS
           C                       = ThisSpc%WetDepId
           State_Chm%Map_WetDep(C) = ThisSpc%ModelId
        ENDIF
+!FAB 
+       IF ( ThisSpc%MamModId > 0  ) THEN
+          C                       = ThisSpc%MamId
+          State_Chm%Map_Mam(C) = ThisSpc%ModelId
+       ENDIF
+        
 
        !---------------------------------------------------------------------
        ! Write out species names and IDs
@@ -2782,6 +2802,8 @@ CONTAINS
           IF ( ThisSpc%PhotolId  > 0 ) WRITE( inds(4), 100 ) ThisSpc%PhotolId
           IF ( ThisSpc%HygGrthId > 0 ) WRITE( inds(5), 100 ) ThisSpc%HygGrthId
           IF ( ThisSpc%KppSpcId  > 0 ) WRITE( inds(6), 100 ) ThisSpc%KppSpcId
+!FAB 
+          IF ( ThisSpc%MamId  > 0 ) WRITE( inds(6), 100 ) ThisSpc%MamId
           WRITE( 6, 110 ) ThisSpc%Name(1:14), ( inds(C), C=1,6               )
  100      FORMAT( i10                                                        )
  110      FORMAT( a14, 2x, 6a10                                              )
@@ -3258,6 +3280,14 @@ CONTAINS
        IF ( RC /= GC_SUCCESS ) RETURN
        State_Chm%Map_WetDep => NULL()
     ENDIF
+!FAB
+    IF ( ASSOCIATED( State_Chm%Map_Mam ) ) THEN
+       DEALLOCATE( State_Chm%Map_Mam, STAT=RC )
+       CALL GC_CheckVar( 'State_Chm%Map_Mam', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       State_Chm%Map_Mam => NULL()
+    ENDIF
+
 
     IF ( ASSOCIATED( State_Chm%Map_WL ) ) THEN
        DEALLOCATE( State_Chm%Map_WL, STAT=RC )

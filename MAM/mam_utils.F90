@@ -43,7 +43,7 @@ MODULE MAM_UTILS
   
   logical, public :: is_first_step_save = .true.
 
-
+  integer, public :: l_h2so4g, l_soag
 
   integer, parameter, public :: n_ocean_data = 4
 #if (defined MODAL_AERO_9MODE || defined MODAL_AERO_4MODE_MOM)

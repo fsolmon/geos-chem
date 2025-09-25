@@ -1757,10 +1757,10 @@ CONTAINS
 !FAB depvel for mam uses the size dependant DUST_SFCRSII
 !modal wet radius and densities are directly passed
                       IF(SpcInfo%MamModId > 0 ) THEN
-                         IF(SpcInfo%Name(1:5)=='MAMNu')THEN
+                         IF(SpcInfo%MP_SizeResNum)THEN
                             DIAM =State_Chm%GCMAM(SpcInfo%MamModId)  &
                                           %nuwetrad(I,J,1)*2.D0     
-                         ELSE 
+                          ELSEIF (SpcInfo%MP_SizeResAer) THEN 
                             DIAM  = State_Chm%GCMAM(SpcInfo%MamModId)  &
                                           %wetrad(I,J,1)*2.D0
                          END IF  

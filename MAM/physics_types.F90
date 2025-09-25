@@ -62,8 +62,8 @@ real(r8), dimension(:,:), pointer :: &
           zm,       &! midpoint height above surface (m)
           cld,      &    ! stratiform cloud fraction
           relhum,   & ! layer relative humidity
-          qv            ! layer specific humidity
-
+          qv,       &     ! layer specific humidity
+          aircon
 real(r8), dimension(:,:), pointer :: &
            ph2so4,       &! prod h2so4 kg/kg/s 
            paqso4         ! aq prod so4 kg/kg/s  

@@ -30,12 +30,24 @@ MODULE Mam_container_Mod
   ! Type for single MAM modes
   !=========================================================================
   TYPE, PUBLIC :: MAMContainer 
+     real(fp)          :: vol2num        ! converts aerosol volume in m3 to number 
      REAL(fp), POINTER :: dryrad (:,:,:) ! vol geo mean dry radius
      REAL(fp), POINTER :: wetrad (:,:,:) ! ------------ wet radius 
      REAL(fp), POINTER :: nudryrad (:,:,:) !num geo mean dry radius 
      REAL(fp), POINTER :: nuwetrad (:,:,:) !------------ wet radius 
-
      REAL(fp), POINTER :: aerdens(:,:,:) ! aerosol effective density  
+ 
+     REAL(fp), POINTER :: so4(:,:,:) ! mam so4 mass concentration 
+     REAL(fp), POINTER :: bc(:,:,:) ! mam  mass concentration 
+     REAL(fp), POINTER :: pom(:,:,:) ! mam  mass concentration 
+     REAL(fp), POINTER :: soa(:,:,:) ! mam  mass concentration
+     REAL(fp), POINTER :: sslt(:,:,:) ! mam  mass concentration
+     REAL(fp), POINTER :: dust(:,:,:) ! mam  mass concentration
+   
+     REAL(fp), POINTER :: nu(:,:,:) ! mam number concentration 
+
+
+
 
   END TYPE MAMContainer 
 
@@ -59,19 +71,21 @@ CONTAINS
 ! !INTERFACE:
 !
 !EOC
- SUBROUTINE Init_MAM_Container( Input_Opt, State_Grid,GCMAM , RC )
+ SUBROUTINE Init_MAM_Container( Input_Opt, State_Grid,SpcLocData, GCMAM , RC )
 !
 ! !USES:
 !
     USE CMN_Size_Mod,   ONLY : NAER
     USE Input_Opt_Mod,  ONLY : OptInput
     USE State_Grid_Mod, ONLY : GrdState
+    USE Species_Mod, ONLY :SpcPtr
     !
 ! !INPUT PARAMETERS:
 !
     TYPE(OptInput),      INTENT(IN)  :: Input_Opt  ! Input Options object
     TYPE(GrdState),      INTENT(IN)  :: State_Grid ! Grid object
 
+    TYPE(SpcPtr),       INTENT(IN)  :: SpcLocData    (:) ! GC Species database
     !
 ! !INPUT/OUTPUT PARAMETERS:
 !
@@ -89,7 +103,7 @@ CONTAINS
 ! !LOCAL VARIABLES:
 !
     CHARACTER(LEN=255) :: errMsg, thisLoc
-    INTEGER            :: NX, NY, NZ, n
+    INTEGER            :: NX, NY, NZ, n, s
 
     !======================================================================
     ! Init_AerMass_Container starts here
@@ -108,9 +122,11 @@ CONTAINS
     ! Initialize arrays
     !======================================================================
     
-    ! dry radius
+    
+    ! please define a MAM mode number , jeez..
     do n= 1, 4 
 
+    ! modal geo dry radius number
     ALLOCATE(GCMAM(n)%nudryrad( NX, NY, NZ ), STAT=RC )
     CALL GC_CheckVar( 'NUDRYRAD', 0, RC )
     IF ( RC /= GC_SUCCESS ) THEN
@@ -156,7 +172,99 @@ CONTAINS
        CALL GC_Error( errMsg, RC, thisLoc )
        RETURN
     ENDIF
-    GCMAM(n)%AERDENS = 1500._fp
+    GCMAM(n)%AERDENS = 1500._fp ! default needs to be fixes for first time step
+
+
+! now define the mass concentration per mode. They will be used for diagnostics and for 
+! input to e.g. optical depth, Fast-J etc . Note that for each MAM mode, 
+! not all species are relevant and corresponding mass array are not allocated to save mem !
+! Always think making an if allocated test when using GCMAM(n)%spec(:,:,:) elsewhere in the code.
+! The info on relevant species per mode is accessible through the species_data.yml  
+! 
+    do s = 1,size(SpcLocData)
+    if(SpcLocData(s)%info%MamModId == n ) then ! test if mam species and corresponding mode exists    
+          if (SpcLocData(s)%info%name(4:6) == 'SO4') then  
+              print*,SpcLocData(s)%info%name
+              ALLOCATE( GCMAM(n)%so4( NX, NY, NZ ), STAT=RC )
+              CALL GC_CheckVar( 'SO4', 0, RC )
+              IF ( RC /= GC_SUCCESS ) THEN
+                errMsg = 'Error allocating array MAM !'
+                CALL GC_Error( errMsg, RC, thisLoc )
+                RETURN
+              ENDIF
+          end if
+          if (SpcLocData(s)%info%name(4:5) == 'BC') then 
+              print*,SpcLocData(s)%info%name
+              ALLOCATE( GCMAM(n)%bc( NX, NY, NZ ), STAT=RC )
+              CALL GC_CheckVar( 'BC', 0, RC )
+              IF ( RC /= GC_SUCCESS ) THEN
+                errMsg = 'Error allocating array MAM !'
+                CALL GC_Error( errMsg, RC, thisLoc )
+                RETURN
+              ENDIF
+          end if
+          if (SpcLocData(s)%info%name(4:6) == 'POM') then 
+              print*,SpcLocData(s)%info%name
+              ALLOCATE( GCMAM(n)%pom( NX, NY, NZ ), STAT=RC )
+              CALL GC_CheckVar( 'POM', 0, RC )
+              IF ( RC /= GC_SUCCESS ) THEN
+                errMsg = 'Error allocating array MAM !'
+                CALL GC_Error( errMsg, RC, thisLoc )
+                RETURN
+              ENDIF
+          end if
+          if (SpcLocData(s)%info%name(4:6) == 'SOA') then 
+              print*,SpcLocData(s)%info%name
+              ALLOCATE( GCMAM(n)%soa( NX, NY, NZ ), STAT=RC )
+              CALL GC_CheckVar( 'SOA', 0, RC )
+              IF ( RC /= GC_SUCCESS ) THEN
+                errMsg = 'Error allocating array MAM !'
+                CALL GC_Error( errMsg, RC, thisLoc )
+                RETURN
+              ENDIF
+          end if
+          if (SpcLocData(s)%info%name(4:7) == 'SSLT') then 
+              print*,SpcLocData(s)%info%name
+              ALLOCATE( GCMAM(n)%sslt( NX, NY, NZ ), STAT=RC )
+              CALL GC_CheckVar( 'SSLT', 0, RC )
+              IF ( RC /= GC_SUCCESS ) THEN
+                errMsg = 'Error allocating array MAM !'
+                CALL GC_Error( errMsg, RC, thisLoc )
+                RETURN
+              ENDIF
+          end if
+          if (SpcLocData(s)%info%name(4:7) == 'DUST') then 
+              print*,SpcLocData(s)%info%name
+              ALLOCATE( GCMAM(n)%dust( NX, NY, NZ ), STAT=RC )
+              CALL GC_CheckVar( 'DUST', 0, RC )
+              IF ( RC /= GC_SUCCESS ) THEN
+                errMsg = 'Error allocating array MAM !'
+                CALL GC_Error( errMsg, RC, thisLoc )
+                RETURN
+              ENDIF
+          end if
+          if (SpcLocData(s)%info%name(4:5) == 'Nu') then 
+              print*,SpcLocData(s)%info%name
+              ALLOCATE( GCMAM(n)%Nu( NX, NY, NZ ), STAT=RC )
+              CALL GC_CheckVar( 'Nu', 0, RC )
+              IF ( RC /= GC_SUCCESS ) THEN
+                errMsg = 'Error allocating array MAM !'
+                CALL GC_Error( errMsg, RC, thisLoc )
+                RETURN
+              ENDIF
+          end if
+! UPDATE WHEN NEW SPECIES WILL BE INTRODUCED
+      end if ! its a mam species mode n   
+    end do ! loop species 
+
+
+! initialize ratios by considering the default MAM modal diameters and standard dev
+!
+    if (n==1)   GCMAM(n)%vol2num =  3.0312191595848506E+020_fp
+    if (n==2)   GCMAM(n)%vol2num =  4.0212792866476384E+022_fp
+    if (n==3)   GCMAM(n)%vol2num =  50431908767592952_fp
+    if (n==4)   GCMAM(n)%vol2num =  5.6542403793695120E+021
+    ! update and test for future cases where mode > 4 ( MAM7 etc)    
     end do
  END SUBROUTINE Init_MAM_Container
 

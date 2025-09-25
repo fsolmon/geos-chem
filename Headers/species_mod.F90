@@ -53,6 +53,8 @@ MODULE Species_Mod
      INTEGER :: nHg0     ! # of Hg0 tracers
      INTEGER :: nHg2     ! # of Hg2 tracers
      INTEGER :: nHgP     ! # of HgP tracers
+!FAB     
+     INTEGER :: nMam      !# of MAM tracers 
   END TYPE SpcIndCt
 
   !=========================================================================
@@ -97,7 +99,8 @@ MODULE Species_Mod
      INTEGER            :: RadNuclId        ! Radionuclide index
      INTEGER            :: TracerId         ! Transport tracer index
      INTEGER            :: WetDepId         ! Wet deposition index
-     INTEGER            :: MamModId         ! Mode ID for MAM species FAB
+     INTEGER            :: MamId            ! MAM index 
+     INTEGER            :: MamModId         ! MAM mode index for MAM species FAB
       
      ! Names
      CHARACTER(LEN=31)  :: Name             ! Short name
@@ -429,6 +432,7 @@ CONTAINS
     Spc%RadNuclId       = MISSING_INT
     Spc%TracerId        = MISSING_INT
     Spc%WetDepId        = MISSING_INT
+    Spc%MamId           = MISSING_INT
     Spc%MamModId        = MISSING_INT
     ! Reals (floating precision)
     Spc%BackgroundVV    = MISSING
@@ -750,10 +754,15 @@ CONTAINS
        ENDIF
 
        IF ( ThisSpc%Is_CloudBorne ) THEN
-          WRITE( 6, 130 )    "Is_CloudBorne   ",  ThisSpc%Is_HgP
+          WRITE( 6, 130 )    "Is_CloudBorne   ",  ThisSpc%Is_CloudBorne
+       ENDIF
+       
+       IF ( ThisSpc%MamModId > ZERO ) THEN
+          WRITE( 6, 130 )    " MamModId   ",  ThisSpc%MamModId
+          WRITE( 6, 130 )    " MamId      ",  ThisSpc%MamId
        ENDIF
 
-
+         
        !--------------------------------------------------------------------
        ! Print default background concentration
        !--------------------------------------------------------------------

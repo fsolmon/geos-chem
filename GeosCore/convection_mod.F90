@@ -694,7 +694,6 @@ CONTAINS
 
     ! Loop over only the advected species
     DO NA = 1, NC
-
        ! Get the species ID (modelID) from the advected species ID
        IC       =  State_Chm%Map_Advect(NA)
 
@@ -703,7 +702,6 @@ CONTAINS
 
        ! Look up the corresponding entry in the species database
        SpcInfo  => State_Chm%SpcData(IC)%Info
-
        ! Also get the corresponding wetdep ID
        NW       =  SpcInfo%WetDepId
 

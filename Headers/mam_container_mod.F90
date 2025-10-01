@@ -46,7 +46,7 @@ MODULE Mam_container_Mod
    
      REAL(fp), POINTER :: nu(:,:,:) ! mam number concentration 
 
-
+     LOGICAL           :: lso4, lbc, lpom, lsoa, lsslt,ldust
 
 
   END TYPE MAMContainer 
@@ -124,7 +124,14 @@ CONTAINS
     
     
     ! please define a MAM mode number , jeez..
-    do n= 1, 4 
+    do n= 1, size(GCMAM) 
+
+     GCMAM(n)%lso4 = .false.
+     GCMAM(n)%lbc = .false.
+     GCMAM(n)%lpom = .false.
+     GCMAM(n)%lsoa = .false.
+     GCMAM(n)%lsslt = .false.
+     GCMAM(n)%ldust = .false.
 
     ! modal geo dry radius number
     ALLOCATE(GCMAM(n)%nudryrad( NX, NY, NZ ), STAT=RC )
@@ -182,9 +189,10 @@ CONTAINS
 ! The info on relevant species per mode is accessible through the species_data.yml  
 ! 
     do s = 1,size(SpcLocData)
-    if(SpcLocData(s)%info%MamModId == n ) then ! test if mam species and corresponding mode exists    
+    if(SpcLocData(s)%info%MamModId == n ) then ! test if mam species
+
           if (SpcLocData(s)%info%name(4:6) == 'SO4') then  
-              print*,SpcLocData(s)%info%name
+              GCMAM(n)%lso4 = .true.
               ALLOCATE( GCMAM(n)%so4( NX, NY, NZ ), STAT=RC )
               CALL GC_CheckVar( 'SO4', 0, RC )
               IF ( RC /= GC_SUCCESS ) THEN
@@ -194,7 +202,7 @@ CONTAINS
               ENDIF
           end if
           if (SpcLocData(s)%info%name(4:5) == 'BC') then 
-              print*,SpcLocData(s)%info%name
+              GCMAM(n)%lbc = .true.
               ALLOCATE( GCMAM(n)%bc( NX, NY, NZ ), STAT=RC )
               CALL GC_CheckVar( 'BC', 0, RC )
               IF ( RC /= GC_SUCCESS ) THEN
@@ -204,7 +212,7 @@ CONTAINS
               ENDIF
           end if
           if (SpcLocData(s)%info%name(4:6) == 'POM') then 
-              print*,SpcLocData(s)%info%name
+              GCMAM(n)%lpom = .true.
               ALLOCATE( GCMAM(n)%pom( NX, NY, NZ ), STAT=RC )
               CALL GC_CheckVar( 'POM', 0, RC )
               IF ( RC /= GC_SUCCESS ) THEN
@@ -214,7 +222,7 @@ CONTAINS
               ENDIF
           end if
           if (SpcLocData(s)%info%name(4:6) == 'SOA') then 
-              print*,SpcLocData(s)%info%name
+              GCMAM(n)%lsoa = .true.
               ALLOCATE( GCMAM(n)%soa( NX, NY, NZ ), STAT=RC )
               CALL GC_CheckVar( 'SOA', 0, RC )
               IF ( RC /= GC_SUCCESS ) THEN
@@ -224,7 +232,7 @@ CONTAINS
               ENDIF
           end if
           if (SpcLocData(s)%info%name(4:7) == 'SSLT') then 
-              print*,SpcLocData(s)%info%name
+              GCMAM(n)%lsslt = .true.
               ALLOCATE( GCMAM(n)%sslt( NX, NY, NZ ), STAT=RC )
               CALL GC_CheckVar( 'SSLT', 0, RC )
               IF ( RC /= GC_SUCCESS ) THEN
@@ -234,7 +242,7 @@ CONTAINS
               ENDIF
           end if
           if (SpcLocData(s)%info%name(4:7) == 'DUST') then 
-              print*,SpcLocData(s)%info%name
+              GCMAM(n)%ldust = .true.
               ALLOCATE( GCMAM(n)%dust( NX, NY, NZ ), STAT=RC )
               CALL GC_CheckVar( 'DUST', 0, RC )
               IF ( RC /= GC_SUCCESS ) THEN
@@ -244,7 +252,6 @@ CONTAINS
               ENDIF
           end if
           if (SpcLocData(s)%info%name(4:5) == 'Nu') then 
-              print*,SpcLocData(s)%info%name
               ALLOCATE( GCMAM(n)%Nu( NX, NY, NZ ), STAT=RC )
               CALL GC_CheckVar( 'Nu', 0, RC )
               IF ( RC /= GC_SUCCESS ) THEN
@@ -257,6 +264,7 @@ CONTAINS
       end if ! its a mam species mode n   
     end do ! loop species 
 
+    print*, 'FAB mam container lso4' , n, GCMAM(n)%lso4
 
 ! initialize ratios by considering the default MAM modal diameters and standard dev
 !

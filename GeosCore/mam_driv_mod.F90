@@ -60,10 +60,10 @@ type(physics_ptend) :: ptend
 
 type, public ::  mamspec ! 
   integer :: gcind  ! sp index relative to Spc ( GC chemstate species )
-  integer :: gcindcb  ! cloudborne sp index relative to Spc ( GC chemstate species )
   integer :: mamind ! sp index relative to both q and qqcw MAM states 
   integer :: modID  ! MAM mode index to which this sp belongs (also used to point to chemstate%GCMAM(mode)%xx)
   logical :: isnum  ! True if number concentration vs mass concentration
+  logical :: iscb
   character* 12  :: name !GC species name for MAM tracers ( ABSOLUTLY must be consistent with speciesdat.yml)  
   character* 12  :: namecb !GC species name for MAM cloudborne sp ( ABSOLUTLY must be consistent with speciesdat.yml)
 end type mamspec
@@ -157,7 +157,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
 !
 ! !LOCAL VARIABLES:
 !
-    INTEGER :: I,J,L,l2,K,N,M,SIZENUM,MDAY
+    INTEGER :: I,J,L,S,l2,K,N,M,SIZENUM,MDAY
 
     ! Make a pointer to the tracer array
     TYPE(SpcConc), POINTER :: Spc(:)
@@ -248,13 +248,14 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     DO J = 1, State_Grid%NY
     DO I = 1, State_Grid%NX ! GEOS-Chem vertical grid is bottom-up
       n = J + (I-1)*State_Grid%NY         
-     do m = 1 , nmamgc
+     do s = 1 , nmamgc
         !number concentrations #/gridbox and convert to #/kg 
         !mass concentrations Kg/gridbox to Kg/Kg (mixing ratios) 
-        physta%q(n,l,mamgc(m)%mamind) = Spc(mamgc(m)%gcind)%Conc(I,J,L)/State_Met%AD(I,J,L) !
-        !
-        physta%qqcw(n,l,mamgc(m)%mamind) = Spc(mamgc(m)%gcindcb)%Conc(I,J,L)/State_Met%AD(I,J,L) !
-
+        if (.not. mamgc(s)%iscb ) then
+          physta%q(n,l,mamgc(s)%mamind) = Spc(mamgc(s)%gcind)%Conc(I,J,L)/State_Met%AD(I,J,L) !
+        else
+          physta%qqcw(n,l,mamgc(s)%mamind) = Spc(mamgc(s)%gcind)%Conc(I,J,L)/State_Met%AD(I,J,L) !
+        end if
      end do  
     END DO
     END DO
@@ -331,7 +332,9 @@ END IF
  
 !-------------------------------------------------------------------------------- 
 ! switch from q & qqcw mass mixing ratios to volume mixing ratios  vmr and vmrcw
-! only adress the gas/aerosol variables in q 
+! only adress the gas/aerosol variables in q, qqcw 
+! Rq : not all gases are modified by MAM routines so q size could be reduced  
+! Rq2: the flow of unit changes could be perhaps simpler
       vmr = 0.0_r8
       vmrcw = 0.0_r8
       do l = imozart, pcnst
@@ -410,23 +413,38 @@ END IF
      DO I = 1, State_Grid%NX
         n = J + (I-1)*State_Grid%NY
         !both for interstitial and cloudborne states
-        do m=1, nmamgc
-          Spc(mamgc(m)%gcind)%Conc(I,J,L) = physta%q(n,l,mamgc(m)%mamind) &
+        do s =1, nmamgc
+        if(.not. mamgc(s)%iscb) then   
+            Spc(mamgc(s)%gcind)%Conc(I,J,L) = physta%q(n,l,mamgc(s)%mamind) &
+                * State_Met%AD(I,J,L)
+        else
+            Spc(mamgc(s)%gcind)%Conc(I,J,L) = physta%qqcw(n,l,mamgc(s)%mamind) &
                                           * State_Met%AD(I,J,L)
-          Spc(mamgc(m)%gcindcb)%Conc(I,J,L) = physta%qqcw(n,l,mamgc(m)%mamind) &
-                                          * State_Met%AD(I,J,L)
+        end if
         end do
-
+        !gas species affected by mam 
         Spc(Ind_('SOAP'))%Conc(I,J,L) = physta%q(n,l,l_soag) &
                                        * State_Met%AD(I,J,L)  
 
         Spc(Ind_('H2SO4'))%Conc(I,J,L) = physta%q(n,l,l_h2so4g) &
                                        * State_Met%AD(I,J,L)
 
-! fill state GCMAM state variables,  used in e.g. drydep   
+      ENDDO
+      ENDDO
+      ENDDO  
+                               
+! fill state GCMAM chem state variables,  used in e.g. drydep  nd diags 
 ! harmonize mamgc and GCMAM 
+! claude AI suggest to keep m loop inside l,j,i loop as long as m is small (which is the case)
+! try to optimize the if statements within loops
 
-      do m= 1, 4     
+      DO L = 1, State_Grid%NZ
+      DO J = 1, State_Grid%NY
+      DO I = 1, State_Grid%NX
+        n = J + (I-1)*State_Grid%NY
+
+
+      do m= 1, size(State_Chm%GCMAM) ! loop on modes     
 
         State_Chm%GCMAM(m)%nudryrad(I,J,L) = 0.5_r8*physta%dgncur_a(n,L,m)   
 
@@ -439,50 +457,50 @@ END IF
                                             *exp(3._r8*(alnsg_amode(m)**2))
         ! wet aer density
         State_Chm%GCMAM(m)%aerdens(I,J,L) =  physta%wetdens(n,L,m)         
-       
+
+        !modal number concentrations in #.m-3
+        State_Chm%GCMAM(m)%Nu(I,J,L) =              &
+                                physta%q(n,L,numptr_amode(m))*State_Met%AIRDEN(I,J,L)
+        ! modal mass concentrations in Kg.m-3  
+        if(lptr_so4_a_amode(m) > 0 ) State_Chm%GCMAM(m)%so4(I,J,L) =              & 
+                                physta%q(n,L,lptr_so4_a_amode(m))*State_Met%AIRDEN(I,J,L) + &  
+        !FAB TEMP add the cloud borne sulf to chm state for diag // change that once 
+        ! transfer from qqcw to q is properly trated !!
+                                physta%qqcw(n,L,lptr_so4_a_amode(m))*State_Met%AIRDEN(I,J,L)    
+
+         
+        if(lptr_bc_a_amode(m) > 0 ) State_Chm%GCMAM(m)%bc(I,J,L) =              &
+                                physta%q(n,L,lptr_bc_a_amode(m))*State_Met%AIRDEN(I,J,L)
+
+        if(lptr_pom_a_amode(m) > 0 ) State_Chm%GCMAM(m)%pom(I,J,L) =              &
+                                physta%q(n,L,lptr_pom_a_amode(m))*State_Met%AIRDEN(I,J,L)
+ 
+        if(lptr_soa_a_amode(m) > 0 ) State_Chm%GCMAM(m)%soa(I,J,L) =              &
+                                physta%q(n,L,lptr_soa_a_amode(m))*State_Met%AIRDEN(I,J,L)
+  
+        if(lptr_nacl_a_amode(m) > 0 ) State_Chm%GCMAM(m)%sslt(I,J,L) =              &
+                                physta%q(n,L,lptr_nacl_a_amode(m))*State_Met%AIRDEN(I,J,L)
+
+        if(lptr_dust_a_amode(m) > 0 ) State_Chm%GCMAM(m)%dust(I,J,L) =              &
+                                physta%q(n,L,lptr_dust_a_amode(m))*State_Met%AIRDEN(I,J,L)
+ 
+
       end do 
 
      ENDDO
      ENDDO
      ENDDO
-
-      
+          
      ! call MAM aerosol update for gravitational settling (this call could be somewhere else )        
      call  MAM_SETTL( Input_Opt,  State_Chm, State_Diag, &
                           State_Grid, State_Met, RC )
 
-! Diagnostic section 
+!Fill out MAM diags (cf Headers/state_diag)    
 
+    call Set_MAM_Diagnostic( Input_Opt, State_Chm, State_Diag, &
+                                     State_Grid, State_Met, RC )
 
-
-!/ elements pris de l'interface ~/cesm222/components/cam/src/chemistry/modal_aero/aero_model.F90  modal_aero_depvel_part       
-
-
-     
-     
-!--------- FAB use Aermass to diag total sulfate mass obviously very trmporary 
-     State_Chm%AerMass%NIT(:,:,:) = 0.
-
-     DO L = 1, State_Grid%NZ
-     DO J = 1, State_Grid%NY
-     DO I = 1, State_Grid%NX
-        n = J + (I-1)*State_Grid%NY
-
-        do m = 1 , size(lptr_so4_a_amode)
-          if (lptr_so4_a_amode(m) < 0) cycle
-          State_Chm%AerMass%NIT(I,J,L) = State_Chm%AerMass%NIT(I,J,L)+&
-                                         physta%q(n,l,lptr_so4_a_amode(m)) 
-        end do
-        do  m = 1 , size( lptr_so4_cw_amode)
-           if (lptr_so4_cw_amode(m) < 0) cycle
-          State_Chm%AerMass%NIT(I,J,L) = State_Chm%AerMass%NIT(I,J,L)+& 
-                                         physta%qqcw(n,l,lptr_so4_cw_amode(m)) 
-        end do
-     END DO
-     END DO
-     END DO
-
-     State_Chm%AerMass%NIT(:,:,:) = State_Chm%AerMass%NIT(:,:,:)*State_Met%AIRDEN(:,:,:)
+!
 
     Spc => NULL() 
     if (lfirstcall) lfirstcall = .false.
@@ -530,7 +548,7 @@ SUBROUTINE MAM_INIT( Input_Opt, State_Chm,  State_Diag, State_Grid, RC )
 !!
 
     integer :: species_class(pcnst) = -1
-    integer  :: m , i 
+    integer  :: m , i , s 
     character * 12 :: tmp
 
     
@@ -567,125 +585,42 @@ ALLOCATE( H2SO4_RATE(State_Grid%NX,State_Grid%NY,State_Grid%NZ) )
 
 !Initialize MAM4/GC transported tracer info  
 !Rq allocate according to MAM option , start with MAM 4 , to be refined 
-nmamgc = 18 
+nmamgc = State_Chm%nMam
+allocate(mamgc(State_Chm%nMam)) 
 
-allocate(mamgc(nmamgc)) 
-mamgc(:)%name ='none'  
-mamgc(:)%gcind =-1 
-mamgc(:)%namecb ='none'
-mamgc(:)%gcindcb =-1
-mamgc(:)%mamind =-1
-mamgc(:)%modId =-1
-mamgc(:)%isnum = .false.
-
-
-! Rq handling of cb information here relies on the fact that
-! numptr_amode(:) = numptr_cwamode(:) in MAM/modal_aero_initialize_data.F90
-! so there is just one similar mamind that point to MAM q and qqcw states
-! in GC workd species indices pointing to interstitial and cloudborne are of course different
-i=1 ! cumulative index  
-do m = 1 , size(numptr_amode)
-  if (numptr_amode(m) < 0) cycle 
-  write (tmp,'(A5,I1)')'MAMNu', m
-  mamgc(i)%name = trim(tmp)  
-  mamgc(i)%gcind = Ind_(mamgc(i)%name)
-  write (tmp,'(A7,I1)')'MAMCBNu', m
-  mamgc(i)%namecb = trim(tmp)
-  mamgc(i)%gcindcb = Ind_(mamgc(i)%namecb)
-  mamgc(i)%mamind= numptr_amode(m) 
-  mamgc(i)%modId = m
-  mamgc(i)%isnum = .true.
-  i=i+1
-end do
-do m = 1 , size(lptr_so4_a_amode)
-  if (lptr_so4_a_amode(m) < 0) cycle
-  write (tmp,'(A6,I1)')'MAMSO4', m
-  mamgc(i)%name = trim(tmp)
-  mamgc(i)%gcind = Ind_(mamgc(i)%name)
-  write (tmp,'(A8,I1)')'MAMCBSO4', m
-  mamgc(i)%namecb = trim(tmp)
-  mamgc(i)%gcindcb = Ind_(mamgc(i)%namecb)
-  mamgc(i)%mamind= lptr_so4_a_amode(m)
-  mamgc(i)%modId = m
-  mamgc(i)%isnum = .false.
-  i=i+1
-end do
-do m = 1 , size(lptr_bc_a_amode)
-  if (lptr_bc_a_amode(m) < 0) cycle !important
-  write (tmp,'(A5,I1)')'MAMBC', m
-  mamgc(i)%name = trim(tmp)
-  mamgc(i)%gcind = Ind_(mamgc(i)%name) ! FAB mettre un test coherence ici ?
-  write (tmp,'(A7,I1)')'MAMCBBC', m
-  mamgc(i)%namecb = trim(tmp)
-  mamgc(i)%gcindcb = Ind_(mamgc(i)%namecb)
-  mamgc(i)%mamind= lptr_bc_a_amode(m)
-  mamgc(i)%modId = m
-  mamgc(i)%isnum = .false.
-  i=i+1
-end do
-do m = 1 , size(lptr_pom_a_amode)
-  if (lptr_pom_a_amode(m) < 0) cycle
-  write (tmp,'(A6,I1)')'MAMPOM', m
-  mamgc(i)%name = trim(tmp) 
-  mamgc(i)%gcind = Ind_(mamgc(i)%name)
-  write (tmp,'(A8,I1)')'MAMCBPOM', m
-  mamgc(i)%namecb = trim(tmp)
-  mamgc(i)%gcindcb = Ind_(mamgc(i)%namecb)
-  mamgc(i)%mamind= lptr_pom_a_amode(m)
-  mamgc(i)%modId = m
-  mamgc(i)%isnum = .false.
-  i=i+1
-end do
-do m = 1 , size(lptr_soa_a_amode)
-  if (lptr_soa_a_amode(m) < 0) cycle
-  write (tmp,'(A6,I1)')'MAMSOA', m
-  mamgc(i)%name = trim(tmp)
-  write (tmp,'(A8,I1)')'MAMCBSOA', m
-  mamgc(i)%namecb = trim(tmp)
-  mamgc(i)%gcindcb = Ind_(mamgc(i)%namecb)
-  mamgc(i)%gcind = Ind_(mamgc(i)%name)
-  mamgc(i)%mamind= lptr_soa_a_amode(m)
-  mamgc(i)%modId = m
-  mamgc(i)%isnum = .false.
-  i=i+1
-end do
-do m = 1 , size(lptr_nacl_a_amode)
-  if (lptr_nacl_a_amode(m) < 0) cycle
-  write (tmp,'(A7,I1)')'MAMSSLT', m
-  mamgc(i)%name = trim(tmp)
-  mamgc(i)%gcind = Ind_(mamgc(i)%name)
-  write (tmp,'(A9,I1)')'MAMCBSSLT', m
-  mamgc(i)%namecb = trim(tmp)
-  mamgc(i)%gcindcb = Ind_(mamgc(i)%namecb)
-  mamgc(i)%mamind= lptr_nacl_a_amode(m)
-  mamgc(i)%modId = m
-  mamgc(i)%isnum = .false.
-  i=i+1
-end do
-do m = 1 , size(lptr_dust_a_amode)
-  if (lptr_dust_a_amode(m) < 0) cycle
-  write (tmp,'(A7,I1)')'MAMDUST', m
-  mamgc(i)%name = trim(tmp)
-  mamgc(i)%gcind = Ind_(mamgc(i)%name)
-  write (tmp,'(A9,I1)')'MAMCBDUST', m
-  mamgc(i)%namecb = trim(tmp)
-  mamgc(i)%gcindcb = Ind_(mamgc(i)%namecb)
-  mamgc(i)%mamind= lptr_dust_a_amode(m)
-  mamgc(i)%modId = m
-  mamgc(i)%isnum = .false.
-  i=i+1
+do i = 1, State_Chm%nMam
+ m = State_Chm%map_Mam(i) 
+ mamgc(i)%name = State_Chm%SpcData(m )%Info%name 
+ mamgc(i)%gcind = m 
+ mamgc(i)%modId =State_Chm%SpcData(m )%Info%MamModId
+ mamgc(i)%isnum = State_Chm%SpcData(m )%Info%MP_SizeResNum
+ mamgc(i)%iscb = State_Chm%SpcData(m )%Info%Is_CloudBorne
+! add maping info for mam q and qqcw states 
+! test name and  for cloud borne - important species in q and qqcw have the same indexing
+ s=4 ! work only for MAMXXX naming convention
+ if (mamgc(i)%iscb) s=6
+ mamgc(i)%mamind =-1
+ !mam modal indices should match existing species and be > 0 
+ !should also be consistent with the allocation state of 
+ !the chem state%GCMAM(mode)%XXX(:,:,:) in /headers
+ !t.b.d make a security test with explicit error message
+ if (mamgc(i)%name(s:s+1) == 'Nu') mamgc(i)%mamind = numptr_amode(mamgc(i)%modId)
+ if (mamgc(i)%name(s:s+2) == 'SO4') mamgc(i)%mamind = lptr_so4_a_amode(mamgc(i)%modId)
+ if (mamgc(i)%name(s:s+1) == 'BC') mamgc(i)%mamind =  lptr_bc_a_amode(mamgc(i)%modId)
+ if (mamgc(i)%name(s:s+2) == 'POM') mamgc(i)%mamind = lptr_pom_a_amode(mamgc(i)%modId)
+ if (mamgc(i)%name(s:s+2) == 'SOA') mamgc(i)%mamind = lptr_soa_a_amode(mamgc(i)%modId)
+ if (mamgc(i)%name(s:s+3) == 'SSLT') mamgc(i)%mamind = lptr_nacl_a_amode(mamgc(i)%modId)
+ if (mamgc(i)%name(s:s+3) == 'DUST') mamgc(i)%mamind = lptr_dust_a_amode(mamgc(i)%modId)
+! to be updated when adding species to MAM
 end do
 
-if (masterproc) then 
-  print*, 'MAM species INFO' 
+  print*, 'MAM species INFO'
   print*, mamgc(:)%name
   print*, mamgc(:)%gcind
   print*, mamgc(:)%mamind
-  print*, mamgc(:)%modId 
+  print*, mamgc(:)%modId
   print*, mamgc(:)%isnum
-
-end if        
-
+   print*, mamgc(:)%iscb
 END SUBROUTINE MAM_INIT        
 
 
@@ -947,7 +882,7 @@ subroutine load_pbuf( pbuf, lchnk, ncol,  &
     T        => State_Met%T
 
     !---------- GRAVITATIONAL SETTLING -------------
-    !
+    !/ma
     ! First calculate vertical movement and removal by
     ! gravitational settling
     !
@@ -979,7 +914,7 @@ subroutine load_pbuf( pbuf, lchnk, ncol,  &
        !$OMP SCHEDULE( DYNAMIC )
        DO I = 1, State_Grid%NX
        DO J = 1, State_Grid%NY
-       DO n = 1 , nmamgc
+       DO n = 1 , size(mamgc)
 
           DO L = 1, State_Grid%NZ
              
@@ -1069,6 +1004,129 @@ subroutine load_pbuf( pbuf, lchnk, ncol,  &
 END SUBROUTINE MAM_SETTL
 
 
+SUBROUTINE Set_MAM_Diagnostic( Input_Opt,  State_Chm, State_Diag, &
+                                     State_Grid, State_Met, RC )
+
+USE ErrCode_Mod
+USE Input_Opt_Mod,  ONLY : OptInput
+    USE Species_Mod,    ONLY : Species, SpcConc
+    USE State_Chm_Mod,  ONLY : ChmState
+    USE State_Diag_Mod, ONLY : DgnState
+    USE State_Grid_Mod, ONLY : GrdState
+    USE State_Met_Mod,  ONLY : MetState
+
+!
+! !INPUT PARAMETERS:
+!
+    TYPE(OptInput),   INTENT(IN)    :: Input_Opt   ! Input Options object
+    TYPE(GrdState),   INTENT(IN)    :: State_Grid  ! Grid State object
+    TYPE(MetState),   INTENT(IN)    :: State_Met   ! Meteorology State object
+!
+! !INPUT/OUTPUT PARAMETERS:
+!
+    TYPE(ChmState),   INTENT(INOUT) :: State_Chm   ! Chemistry State object
+    TYPE(DgnState),   INTENT(INOUT) :: State_Diag  ! Diagnostic State object
+!
+! !OUTPUT PARAMETERS:
+!
+    INTEGER,          INTENT(OUT)   :: RC          ! Success or failure?
+!
+! !LOCAL VARIABLES:
+!
+    ! SAVEd scalars
+
+    ! Scalars
+    INTEGER                  :: I, J, L, M
+
+    ! Strings
+    CHARACTER(LEN=255)       :: ThisLoc
+    CHARACTER(LEN=512)       :: ErrMsg
+
+    ! Convert [kg/m3] to [ug/m3]
+    REAL(fp),      PARAMETER :: kgm3_to_ugm3 = 1.0e+9_fp
+
+! Initialize
+    RC       = GC_SUCCESS
+    ErrMsg   = ''
+    ThisLoc  = ' -> at Set_AerMass_Diagnostic (in module GeosCore/aerosol_mod.F90)'
+
+
+! 
+
+    !$OMP PARALLEL DO         &
+    !$OMP DEFAULT( SHARED   ) &
+    !$OMP PRIVATE( I, J, L  )
+    DO L = 1, State_Grid%NZ
+    DO J = 1, State_Grid%NY
+    DO I = 1, State_Grid%NX
+
+
+! Start with state_chm%GCMAM diag     
+    
+! modal 
+      IF ( State_Diag%Archive_MamNu ) THEN
+          do m = 1, size(State_Chm%GCMAM)
+            if (State_Diag%Map_MamNu%id2slot(m) > 0)  &
+            State_Diag%MamNu(I,J,L,m) = State_Chm%GCMAM(m)%Nu(I,J,L) * 1.E-6_fp !#m-3 to #cm-3
+           end do
+      ENDIF
+
+!now everything is set up to have modal species concentration diag as well 
+
+!total concentrations
+
+      IF ( State_Diag%Archive_MamSO4Mass ) THEN
+           State_Diag%MamSO4Mass(I,J,L) = 0.
+           do m = 1, size(State_Chm%GCMAM)
+               if (State_Chm%GCMAM(m)%lso4)   State_Diag%MamSO4Mass(I,J,L) = &
+                   State_Diag%MamSO4Mass(I,J,L) + State_Chm%GCMAM(m)%so4(I,J,L) * kgm3_to_ugm3
+           end do
+      ENDIF
+
+      IF ( State_Diag%Archive_MamBCMass ) THEN
+           State_Diag%MamBCMass(I,J,L) = 0.
+           do m = 1, size(State_Chm%GCMAM)
+               if (State_Chm%GCMAM(m)%lbc)    State_Diag%MamBCMass(I,J,L) = &
+                   State_Diag%MamBCMass(I,J,L) + State_Chm%GCMAM(m)%bc(I,J,L) * kgm3_to_ugm3
+           end do
+      ENDIF
+
+      IF ( State_Diag%Archive_MamPOMMass ) THEN
+           State_Diag%MamPOMMass(I,J,L) = 0.
+           do m = 1, size(State_Chm%GCMAM)
+               if (State_Chm%GCMAM(m)%lpom)   State_Diag%MamPOMMass(I,J,L) = &
+                   State_Diag%MamPOMMass(I,J,L) + State_Chm%GCMAM(m)%pom(I,J,L) * kgm3_to_ugm3
+           end do
+      ENDIF
+
+      IF ( State_Diag%Archive_MamSOAMass ) THEN
+           State_Diag%MamSOAMass(I,J,L) = 0.
+           do m = 1, size(State_Chm%GCMAM)
+               if (State_Chm%GCMAM(m)%lsoa)  State_Diag%MamSOAMass(I,J,L) = &
+                   State_Diag%MamSOAMass(I,J,L) + State_Chm%GCMAM(m)%soa(I,J,L) * kgm3_to_ugm3
+           end do
+      ENDIF
+
+      IF ( State_Diag%Archive_MamSSLTMass ) THEN
+           State_Diag%MamSSLTMass(I,J,L) = 0.
+           do m = 1, size(State_Chm%GCMAM)
+               if (State_Chm%GCMAM(m)%lsslt) State_Diag%MamSSLTMass(I,J,L) = &
+                   State_Diag%MamSSLTMass(I,J,L) + State_Chm%GCMAM(m)%sslt(I,J,L) * kgm3_to_ugm3
+           end do
+      ENDIF
+
+      IF ( State_Diag%Archive_MamDUSTMass ) THEN
+           State_Diag%MamDUSTMass(I,J,L) = 0.
+           do m = 1, size(State_Chm%GCMAM)
+               if (State_Chm%GCMAM(m)%ldust)  State_Diag%MamDUSTMass(I,J,L) = &
+                   State_Diag%MamDUSTMass(I,J,L) + State_Chm%GCMAM(m)%dust(I,J,L) * kgm3_to_ugm3
+           end do
+      ENDIF
+   ENDDO
+   ENDDO
+   ENDDO
+
+END SUBROUTINE Set_MAM_Diagnostic
 
 END MODULE MAM_DRIV_MOD
 

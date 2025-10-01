@@ -438,7 +438,6 @@ CONTAINS
 
              State_Chm%AerMass%SO4(I,J,L) = Spc(id_SO4)%Conc(I,J,L) / AIRVOL(I,J,L)
              State_Chm%AerMass%NH4(I,J,L) = Spc(id_NH4)%Conc(I,J,L) / AIRVOL(I,J,L)
-!FAB trick remov!!      State_Chm%AerMass%NIT(I,J,L) = Spc(id_NIT)%Conc(I,J,L) / AIRVOL(I,J,L)
              State_Chm%AerMass%SLA(I,J,L) = 0.0_fp
              State_Chm%AerMass%SPA(I,J,L) = 0.0_fp
 

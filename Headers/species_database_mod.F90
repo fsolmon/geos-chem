@@ -637,15 +637,15 @@ CONTAINS
           ELSE IF ( INDEX( key, "%MamModId" ) > 0 ) THEN  !FAB
              CALL QFYAML_Add_Get( yml, key, v_int, "", RC )
              IF ( RC /= GC_SUCCESS ) GOTO 999
-             ThisSpc%MamModId = v_int
-             SpcCount%nMam  = SpcCount%nMam + 1
-             ThisSpc%MamId  = SpcCount%nMam             
-
+             IF(v_int > 0) THEN 
+                ThisSpc%MamModId = v_int
+                SpcCount%nMam  = SpcCount%nMam + 1
+                ThisSpc%MamId  = SpcCount%nMam             
+             ENDIF   
           ELSE IF ( INDEX( key, "%Is_CloudBorne" ) > 0 ) THEN  !FAB
              CALL QFYAML_Add_Get( yml, key, v_bool, "", RC )
              IF ( RC /= GC_SUCCESS ) GOTO 999
-             ThisSpc%MamModId = v_int
-
+             ThisSpc%Is_Cloudborne = v_bool
           ELSE IF ( INDEX( key, "%MW_g" ) > 0 ) THEN
              CALL QFYAML_Add_Get( yml, key, v_real, "", RC )
              IF ( RC /= GC_SUCCESS ) GOTO 999

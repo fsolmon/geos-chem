@@ -2372,6 +2372,9 @@ CONTAINS
     USE APM_DRIV_MOD,         ONLY : PSO4GAS
     USE APM_DRIV_MOD,         ONLY : XO3
 #endif
+#ifdef MODAL_AERO_4MODE 
+    USE MAM_DRIV_MOD,         ONLY : PSO4_SO2MAM  
+#endif
 !
 ! !INPUT PARAMETERS:
 !
@@ -4113,7 +4116,10 @@ CONTAINS
 #ifdef TOMAS
        PSO4_SO2AQ(I,J,L) = L2S + L3S + SR ! For TOMAS microphysics
 #endif
-
+#ifdef MODAL_AERO_4MODE
+!FAB perhap update for other prod L6-8 ??
+       PSO4_SO2MAM(I,J,L) = L2S + L3S + L4S + L5S + SR
+#endif 
        ! tdf Production of sulfate and nitrate on dust
        IF ( LDSTUP ) THEN
 
@@ -4283,6 +4289,7 @@ CONTAINS
     ENDDO
     ENDDO
     !$OMP END PARALLEL DO
+
 
     ! Deallocate if allocated
     IF ( ASSOCIATED( NDENS_SALA ) ) DEALLOCATE ( NDENS_SALA )

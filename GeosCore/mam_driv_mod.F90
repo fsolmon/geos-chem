@@ -46,6 +46,7 @@ PUBLIC :: MAM_DRIV, MAM_INIT
 REAL(fp), pointer, public :: PSO4AQ_RATE(:,:,:) ! Cld chem sulfate prod rate [kg s-1]  
 REAL(fp), pointer, public :: H2SO4_RATE(:,:,:) ! H2SO4 prod rate [kg s-1]
 ! 
+REAL(fp), pointer, public :: PSO4_SO2MAM(:,:,:)
 !
 
 type(physics_buffer_desc), pointer :: pbuf(:)
@@ -121,7 +122,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
                                lptr_bc_a_amode, lptr_nacl_a_amode,&
                                lptr_pom_a_amode, lptr_soa_a_amode,&
                                lptr_dust_a_amode, lptr_so4_cw_amode,&
-                               modeptr_accum, alnsg_amode
+                               modeptr_accum, alnsg_amode, voltonumb_amode
     use modal_aero_initialize_data, only: MAM_cold_start 
     use modal_aero_calcsize, only: modal_aero_calcsize_sub
     use modal_aero_wateruptake, only: modal_aero_wateruptake_dr
@@ -180,10 +181,9 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
        
     ! Point to Spc
     Spc => State_Chm%Species
-     if (masterproc) then
-     print*, 'FAB comp rates',maxval(h2so4_rate), maxval(Spc(Ind_('PH2SO4'))%Conc(:,:,:))/deltat ,&
-               maxval(PSO4AQ_RATE)/deltat, maxval(Spc(Ind_('PSO4AQ'))%Conc(:,:,:))/deltat  
-     end if  
+!     if (masterproc) then
+     print*, 'FAB comp rates', maxval( Spc(Ind_('PSO4AQ'))%Conc), maxval(Spc(Ind_('PH2SO4'))%Conc)    
+
 
     lchnk = begchunk
     loffset = imozart -1
@@ -210,12 +210,11 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
 
       ! load sulf production rate and convert from Kg.s-1  to kg.kg-1.s-1 
       ! needs fullchem activated 
-       
-      physta%ph2so4(n,l) = h2so4_rate(I,J,L) / State_Met%AD(I,J,L)              
-      !paqso4 is the prod per time step ! consider using PSO4AQ, PH2SO4 instead!
-      ! and remove the interface in fullchem ?? 
-      physta%paqso4(n,l) = PSO4AQ_RATE(I,J,L)/deltat / State_Met%AD(I,J,L)
+      physta%ph2so4(n,l) = Spc(Ind_('PH2SO4'))%Conc(I,J,L) / State_Met%AD(I,J,L)/ deltat              
 
+      !paqso4 is the prod per time step ! consider using PSO4AQ, PH2SO4 instead!
+      ! and remove the interface in fullchem ?? Rq needed the fix in KPP !! 
+      physta%paqso4(n,l) =  Spc(Ind_('PSO4AQ'))%Conc(I,J,L)  / State_Met%AD(I,J,L) /deltat
       ! load q gas ...
       ! the gas phase species SO2,DMS,H2O2 in q are not used/modified 
       ! if we use GC production rate for SO4 instead of MAM simple chem 
@@ -233,7 +232,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       ! other gas might be considered if MAM7 and/or MOSAIC are implemented
 
        ! FAB TEST 
-       !Spc(Ind_('MAMDEV'))%Conc(I,J,L)= Spc(Ind_('MAMDEV'))%Conc(I,J,L) + h2so4_rate(i,j,l) *deltat + PSO4AQ_RATE(i,j,l)
+!       Spc(Ind_('MAMDEV'))%Conc(I,J,L)= Spc(Ind_('MAMDEV'))%Conc(I,J,L) + h2so4_rate(i,j,l) *deltat + PSO4AQ_RATE(i,j,l)
  
 !         Spc(Ind_('MAMDEV'))%Conc(I,J,L)= Spc(Ind_('MAMDEV'))%Conc(I,J,L) + Spc(Ind_('PH2SO4'))%Conc(I,J,L) + Spc(Ind_('PSO4AQ'))%Conc(I,J,L)  
 
@@ -274,6 +273,18 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     END DO
     ! initialise q aerosol state (cold start) / for testing phase  
     call MAM_cold_start (physta) 
+
+    DO L = 1, State_Grid%NZ
+    DO J = 1, State_Grid%NY
+    DO I = 1, State_Grid%NX ! 
+      n = J + (I-1)*State_Grid%NY
+!FAB  try something temporary 
+      physta%q(n,l,lptr_so4_a_amode(1)) = Spc(IND_('SO4'))%Conc(I,J,L)/State_Met%AD(I,J,L)
+      physta%q(n,l,numptr_amode(1)) =    physta%q(n,l,lptr_so4_a_amode(1)) /1700. * voltonumb_amode(1)
+!      Spc(IND_('MAMDEV'))%Conc(I,J,L) = Spc(IND_('SO4'))%Conc(I,J,L)
+    END DO
+    END DO
+    END DO
     endif         
 
 
@@ -320,15 +331,6 @@ call load_pbuf( pbuf, lchnk, pcols, &
      call unload_pbuf( pbuf, lchnk, pcols, &
          physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens )
 
-
- 
- 
-IF( .false.) THEN
-  print*, lptr_soa_a_amode(2)
-  print*, 'q sox avant ',l_soag, physta%q(5,2,l_soag),physta%q(5,2,lptr_soa_a_amode(1)), physta%q(5,2,lptr_soa_a_amode(2)) 
-  print*, 'q num avant', physta%q(5,2,17), physta%q(5,2,21), physta%q(5,2,25)
-END IF
- 
  
 !-------------------------------------------------------------------------------- 
 ! switch from q & qqcw mass mixing ratios to volume mixing ratios  vmr and vmrcw
@@ -351,9 +353,7 @@ END IF
         !
         l2 = l_h2so4g-loffset
         vmr(1:pcols,1:pver,l2) = vmr(1:pcols,1:pver,l2) + physta%ph2so4(1:pcols,1:pver)*mwdry/adv_mass(l2)*deltat          
-
       end if 
-
       vmr_svbb = vmr    ! save before cloud chem
       vmrcw_svbb = vmrcw! save before cloud chem
 
@@ -399,13 +399,6 @@ END IF
          physta%qqcw( 1:pcols,1:pver,l)  = vmrcw(1:pcols,1:pver,l2) * adv_mass(l2)/mwdry
       end do
 
-      
-      
-IF(.false.) THEN
-      print*,'FAB DRIVER'
-      print*, 'q apres sox ',l_soag, physta%q(5,2,l_soag),physta%q(5,2,lptr_soa_a_amode(1)), physta%q(5,2,lptr_soa_a_amode(2)) 
-      print*, 'q apres num ', physta%q(5,2,17), physta%q(5,2,21), physta%q(5,2,25)
-END IF
       
 ! Update GC/MAM species 
      DO L = 1, State_Grid%NZ
@@ -582,7 +575,7 @@ call MAM_ALLOCATE (physta,ptend )
 !allocate specific GC diqg usefull for mam  
 ALLOCATE( PSO4AQ_RATE(State_Grid%NX,State_Grid%NY,State_Grid%NZ) )
 ALLOCATE( H2SO4_RATE(State_Grid%NX,State_Grid%NY,State_Grid%NZ) )
-
+ALLOCATE( PSO4_SO2MAM(State_Grid%NX,State_Grid%NY,State_Grid%NZ) )
 !Initialize MAM4/GC transported tracer info  
 !Rq allocate according to MAM option , start with MAM 4 , to be refined 
 nmamgc = State_Chm%nMam

@@ -843,7 +843,7 @@ CONTAINS
       !$OMP END PARALLEL DO
 #elif defined (MODAL_AERO_4MODE)
 !FAB here just do nothing as SOAP will be updtated and condensed by MAM  
- 
+! perhaps think about duplicating SOAP tracer specific for MAM 
 #else
       !$OMP PARALLEL DO       &
       !$OMP DEFAULT( SHARED ) &

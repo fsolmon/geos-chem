@@ -15,7 +15,7 @@
 module wv_saturation
 !  use shr_kind_mod, only: r8 => shr_kind_r8
   use precision_mod, only: r8 => f8
-  use mam_utils, only:endrun, iulog, pver
+  use mam_utils, only:endrun, iulog, pver, pcols
 !  use abortutils,   only: endrun
 !  use cam_logfile,  only: iulog
 !  use ppgrid,       only: pver
@@ -1371,15 +1371,15 @@ subroutine  qsat(t       ,p       ,es      ,qs        )
 !
 ! note that this uses ncol_for_qsat, which is a box model kludge
 ! FAB replace by pver
-   real(r8), intent(in) :: t(pver,*)    ! Temperature
-   real(r8), intent(in) :: p(pver,*)    ! Pressure
-   real(r8), intent(out) :: es(pver,*)   ! Saturation vapor pressure
-   real(r8), intent(out) :: qs(pver,*)   ! Saturation specific humidity
+   real(r8), intent(in) :: t(pcols,pver)    ! Temperature
+   real(r8), intent(in) :: p(pcols,pver)    ! Pressure
+   real(r8), intent(out) :: es(pcols,pver)   ! Saturation vapor pressure
+   real(r8), intent(out) :: qs(pcols,pver)   ! Saturation specific humidity
 
 !ubroutine aqsat(t       ,p       ,es      ,qs        ,ii      , &
 !                ilen             ,kk      ,kstart  ,kend      )
-   call    aqsat(t       ,p       ,es      ,qs      ,pver, &
-                 pver    ,pver    ,1       ,pver      )
+   call    aqsat(t       ,p       ,es      ,qs      ,pcols, &
+                  pcols   ,pver    ,1       ,pver      )
    return
 end subroutine qsat
 

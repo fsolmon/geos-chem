@@ -1402,7 +1402,7 @@ end if
 ! to be refined 
       adv_mass(:l) = &
        (/ 34.0135994_r8, 98.0783997_r8, 64.0647964_r8, 62.1324005_r8,               &
-         150._r8 , 115.107340_r8, 12.0109997_r8, 150._r8,               &
+         150._r8 , 96._r8, 12.0109997_r8, 150._r8,               &
          12.0109997_r8, 58.4424667_r8, 135.064041_r8, 1.00740004_r8, 115.107340_r8, &
          150._r8, 58.4424667_r8, 1.00740004_r8,                               &
          135.064041_r8, 58.4424667_r8, 115.107340_r8, 1.00740004_r8,                &
@@ -1586,8 +1586,10 @@ end if
         real(r8) :: tmpdens, tmpvol, tmpmass, sx
 
 
-        real(r8), pointer :: q(:,:,:), aircon(:,:), dgncur_a(:,:,:)
-
+!        real(r8), pointer :: q(:,:,:), aircon(:,:), dgncur_a(:,:,:)
+         real(r8), dimension(pcols,pver,pcnst):: q
+         real(r8), dimension(pcols,pver):: aircon
+         real(r8), dimension(pcols,pver,ntot_amode):: dgncur_a(pcols,pver,ntot_amode)
 
         integer :: l_num_a1, l_num_a2, l_nh4_a1, l_nh4_a2, &
                          l_so4_a1, l_so4_a2, l_soa_a1, l_soa_a2
@@ -1602,38 +1604,38 @@ end if
         !initialize gas phase and aerosol state for dev test only TEMPORARY
         ! be aware of modal_aero_initialize_q in modal_aero_initialize_data.F90
         ! which is not called but could be usefull
-       q => state%q
-       dgncur_a => state%dgncur_a
-       aircon =>state%aircon
+       q = state%q
+       dgncur_a = state%dgncur_a
+       aircon = state%aircon
 !      q(:,:,l_so2g)   = 1.e-4
 !      q(:,:,l_soag)   = 5.e-10
 !      q(:,:,l_h2so4g) = 1.e-13
 
 numc1          = 1.E6_r8    ! unit: #/m3
-numc2          = 0._r8
-numc3          = 0._r8
-numc4          = 0._r8
+numc2          = 1.E6_r8
+numc3          = 1.E2_r8
+numc4          = 1.E5_r8
 
-mfso41         = 1._r8
-mfpom1         = 0._r8
-mfsoa1         = 0._r8
+mfso41         = 0.8_r8
+mfpom1         = 0.1_r8
+mfsoa1         = 0.1_r8
 mfbc1          = 0._r8
 mfdst1         = 0._r8
 mfncl1         = 0._r8
 
-mfso42         = 0._r8
-mfsoa2         = 0._r8
-mfncl2         = 0._r8
+mfso42         = 0.8_r8
+mfsoa2         = 0.1_r8
+mfncl2         = 0.1_r8
 
-mfdst3         = 0._r8
-mfncl3         = 0._r8
-mfso43         = 0._r8
+mfdst3         = 0.8_r8
+mfncl3         = 0.1_r8
+mfso43         = 0.1_r8
 mfbc3          = 0._r8
 mfpom3         = 0._r8
 mfsoa3         = 0._r8
 
-mfpom4         = 0._r8
-mfbc4          = 0._r8
+mfpom4         = 0.8_r8
+mfbc4          = 0.2_r8
 
       ! check if mass fraction is larger than one
       if (mfso41+mfpom1+mfsoa1+mfbc1+mfdst1+mfncl1 .gt. 1._r8) then
@@ -1655,10 +1657,6 @@ mfbc4          = 0._r8
 
 ! initialize the aerosol/number mixing ratio for cold start.
 ! adapted to mam4 box model for now , only on the first 10 levels  
-      if (masterproc) then
-              print*,'q init 1 ', q(5,2,:)
-      end if
-
        do k = 1, 72 
          do i = 1, pcols 
             do  n = 1, ntot_amode
@@ -1725,7 +1723,8 @@ mfbc4          = 0._r8
                 tmpvol  = q(i,k,numptr_amode(n)) * &
                           (dgncur_a(i,k,n)**3) * &
                           (pi/6.0_r8) * exp(4.5_r8*sx*sx)
-                tmpdens = 1.0_r8 /                           &
+
+                 tmpdens = 1.0_r8 /                           &
                           ( (tmpfsoa / dens_aer(iaer_soa)) + &
                             (tmpfso4 / dens_aer(iaer_so4)) + &
                             (tmpfbcx / dens_aer(iaer_bc )) + &
@@ -1772,9 +1771,6 @@ mfbc4          = 0._r8
             end do ! n
          end do ! i
       end do ! k   
-      if (masterproc) then
-              print*,'q init', q(5,2,:)
-      end if 
 END SUBROUTINE MAM_cold_start
 
 

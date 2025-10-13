@@ -532,11 +532,11 @@ implicit none
       if (nstep < 3) then
          do i = 1, ncol
 !           if ((latndx(i) == 23) .and. (lonndx(i) == 37)) icol_diag = i
-            if ((latndx(i) == 47) .and. (lonndx(i) ==121)) icol_diag = i  ! amazon
+!            if ((latndx(i) == 47) .and. (lonndx(i) ==121)) icol_diag = i  ! amazon
          end do
       end if
       end if
-
+print*,'fab debut ncol, pcol ',  ncol, pcols
       do_cond   = ( mdo_gasaerexch > 0 )
       do_rename = ( mdo_rename > 0 )
       do_newnuc = ( mdo_newnuc > 0 )
@@ -577,14 +577,13 @@ implicit none
 ! get saturation mixing ratio
       call qsat( t(1:ncol,1:pver), pmid(1:ncol,1:pver), &
                  ev_sat(1:ncol,1:pver), qv_sat(1:ncol,1:pver) )
-
 main_k_loop: &
       do k = top_lev, pver
+
 main_i_loop: &
       do i = 1, ncol
 
       if ( ldiag13n ) lun13n = 129 + i
-
 
 !
 ! determine the number of sub-areas, their fractional areas, and relative humidities
@@ -956,7 +955,7 @@ main_i_loop: &
 !        qsub4, qqcwsub4,                         &
 !        qsub_tendaa, qqcwsub_tendaa              )
 
-      call mam_amicphys_1gridcell(                &
+       call mam_amicphys_1gridcell(                &
          do_cond,             do_rename,          &
          do_newnuc,           do_coag,            &
          nstep,    lchnk,     i,         k,       &
@@ -973,7 +972,6 @@ main_i_loop: &
          qsub4, qqcwsub4, qaerwatsub4,            &
          qsub_tendaa, qqcwsub_tendaa,             &
          misc_vars_aa                             )
-
 
 !
 ! form new grid-mean mix-ratios
@@ -1082,7 +1080,6 @@ main_i_loop: &
          end if
       end do ! l
       end do ! iqtend
-
       if ( history_aerocom ) then
          ! 3d soa tendency for aerocom
          ! note that flux units (kg/m2/s) are used here instead of tendency units (kg/kg/s or kg/m3/s)
@@ -1096,7 +1093,6 @@ main_i_loop: &
          nufine_3dtend_nnuc(i,k) = qgcm_tendaa(l,iqtend_nnuc) * (pmid(i,k)/(r_universal*t(i,k)))
       end if
 
-
       ncluster_3dtend_nnuc(i,k) = misc_vars_aa%ncluster_tend_nnuc_1grid
 #if ( defined ( MOSAIC_SPECIES ) )
       cnvrg_fail(i,k) = misc_vars_aa%cnvrg_fail_1grid 
@@ -1107,8 +1103,6 @@ main_i_loop: &
       end do main_i_loop
 
       end do main_k_loop
-
-
 ! output column tendencies to history
 ! the ordering here is to allow comparison of fort.90 files from box model testing
 !    but is not important for regular cam simulations
@@ -1164,7 +1158,6 @@ main_i_loop: &
          end if
 
       end do ! ipass
-
 #if ( defined( MOSAIC_SPECIES ) )
       if ( mosaic ) then
          !BSINGH - output MOSAIC convergence fail tracking:
@@ -1180,7 +1173,6 @@ main_i_loop: &
          end do
       end if
 #endif
-
       return
 !EOC
       end subroutine modal_aero_amicphys_intr

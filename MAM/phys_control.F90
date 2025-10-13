@@ -17,6 +17,9 @@
       integer :: mam_amicphys_optaa = 1
 
       logical :: convproc_do_aer = .true.
+
+      !FAB these history switch can pause problemes switch to false
+
       logical :: convproc_do_gas = .false.
       logical :: history_aerosol = .true.
       logical :: history_aerocom = .true.

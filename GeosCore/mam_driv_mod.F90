@@ -182,8 +182,6 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     ! Point to Spc
     Spc => State_Chm%Species
 !     if (masterproc) then
-     print*, 'FAB comp rates', maxval( Spc(Ind_('PSO4AQ'))%Conc), maxval(Spc(Ind_('PH2SO4'))%Conc)    
-
 
     lchnk = begchunk
     loffset = imozart -1
@@ -212,8 +210,6 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       ! needs fullchem activated 
       physta%ph2so4(n,l) = Spc(Ind_('PH2SO4'))%Conc(I,J,L) / State_Met%AD(I,J,L)/ deltat              
 
-      !paqso4 is the prod per time step ! consider using PSO4AQ, PH2SO4 instead!
-      ! and remove the interface in fullchem ?? Rq needed the fix in KPP !! 
       physta%paqso4(n,l) =  Spc(Ind_('PSO4AQ'))%Conc(I,J,L)  / State_Met%AD(I,J,L) /deltat
       ! load q gas ...
       ! the gas phase species SO2,DMS,H2O2 in q are not used/modified 
@@ -222,20 +218,12 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       ! which could run dindependant of fullchem e.g. from prescribed oxidants..
 
     
-       physta%q(n,l,l_h2so4g) = Spc(Ind_('H2SO4'))%Conc(I,J,L) / State_Met%AD(I,J,L)
-
-       
+      physta%q(n,l,l_h2so4g) = Spc(Ind_('H2SO4'))%Conc(I,J,L) / State_Met%AD(I,J,L)
       physta%q(n,l,l_soag) = Spc(Ind_('SOAP'))%Conc(I,J,L) / State_Met%AD(I,J,L) 
       ! Rq in GC standard lumped SOAP is not treated as semi_volatil but in MAM yes
       ! is this reqsonqble ? 
       ! develop options with advanced SOA scheme  
       ! other gas might be considered if MAM7 and/or MOSAIC are implemented
-
-       ! FAB TEST 
-!       Spc(Ind_('MAMDEV'))%Conc(I,J,L)= Spc(Ind_('MAMDEV'))%Conc(I,J,L) + h2so4_rate(i,j,l) *deltat + PSO4AQ_RATE(i,j,l)
- 
-!         Spc(Ind_('MAMDEV'))%Conc(I,J,L)= Spc(Ind_('MAMDEV'))%Conc(I,J,L) + Spc(Ind_('PH2SO4'))%Conc(I,J,L) + Spc(Ind_('PSO4AQ'))%Conc(I,J,L)  
-
 
      END DO
      END DO
@@ -261,7 +249,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     END DO
     end if ! lfirst call.
 
-    ! This colde start init is temporary until handling a proper GC restart file
+    ! This cold start init is temporary until handling a proper GC restart file
     if (lfirstcall) then 
     DO L = 1, State_Grid%NZ
     DO J = 1, State_Grid%NY
@@ -370,8 +358,8 @@ call load_pbuf( pbuf, lchnk, pcols, &
       end if
 
 !------------------------------
-  nstep = 1 ! get the GC integration step counter ( used only for print out in fact) 
-  if(1==1) then ! .and. masterproc ) then
+  nstep = 4 ! get the GC integration step counter ( used only for print out in fact) 
+  if(.true.) then ! .and. masterproc ) then
      call modal_aero_amicphys_intr(               &
          mdo_gasaerexch,     mdo_rename,          &
          mdo_newnuc,         mdo_coag,            &
@@ -389,7 +377,6 @@ call load_pbuf( pbuf, lchnk, pcols, &
          physta%dgncur_a,     physta%dgncur_awet,  &
          physta%wetdens,      physta%qaerwat              )
     end if
- 
 ! vmr and vmrcw have been updated in modal_aero_amicphys_intr  
 ! switch back from vmr & vmrcw to q & qqcw state
 !
@@ -515,7 +502,7 @@ SUBROUTINE MAM_INIT( Input_Opt, State_Chm,  State_Diag, State_Grid, RC )
 
     USE TIME_MOD,     ONLY : GET_TS_CHEM
 
-    use mam_utils, ONLY : plev 
+    use mam_utils, ONLY : plev, ncol_for_outfld  
     use physics_buffer, only: physics_buffer_desc 
     use physics_types, only : physics_state
     use modal_aero_data, only: numptr_amode, lptr_so4_a_amode, &
@@ -565,6 +552,11 @@ SUBROUTINE MAM_INIT( Input_Opt, State_Chm,  State_Diag, State_Grid, RC )
 pcols = State_Grid%NX *  State_Grid%Ny
 pver  = State_Grid%NZ
 plev = pver
+
+!this control diag file printing in mam ...
+!set to 1 for limiting printing
+!anyway you should revisit these printing in GC context.
+ncol_for_outfld = 1
 
 !pcols pver pourraient just passer par module plutot que par argument
 call MAM_init_basics(pbuf)
@@ -897,7 +889,6 @@ subroutine load_pbuf( pbuf, lchnk, ncol,  &
     !      P [=] kPa and Dp [=] um
 
     IF ( DOSETTLING ) THEN
-      if (masterproc) print*, 'END MAM SETTLING', maxval(Spc(mamgc(1)%gcind)%Conc), maxval(Spc(mamgc(3)%gcind)%Conc)
 
        !$OMP PARALLEL DO       &
        !$OMP DEFAULT( SHARED ) &
@@ -991,7 +982,6 @@ subroutine load_pbuf( pbuf, lchnk, ncol,  &
        ENDDO  ! J-loop
        !$OMP END PARALLEL DO
   
-       if (masterproc) print*, 'END MAM SETTLING', maxval(Spc(mamgc(1)%gcind)%Conc), maxval(Spc(mamgc(3)%gcind)%Conc) 
     ENDIF  ! DOSETTLING
 
 END SUBROUTINE MAM_SETTL

@@ -274,14 +274,14 @@ CONTAINS
 
     txtaa = fname
     write(90,'(/a,1p,20e11.3)') txtaa, field(1:ncol_for_outfld,1)
-
-    if ( txtaa == 'SOAG_sfgaex3d   ' .or. &
-         txtaa == 'num_a2_nuc1     ' .or. &
-         txtaa == 'num_a2_nuc2     ' ) then
-       do k = 2, pver
-          write(90,'(a,i2,10x,1p,20e11.3)') '  k=', k, field(1:ncol_for_outfld,k)
-       end do
-    end if
+!FAB    print*, 'ahha' , ncol_for_outfld, pver,idim  
+!    if ( txtaa == 'SOAG_sfgaex3d   ' .or. &
+!         txtaa == 'num_a2_nuc1     ' .or. &
+!         txtaa == 'num_a2_nuc2     ' ) then
+!       do k = 2, pver
+!          write(90,'(a,i2,10x,1p,20e11.3)') '  k=', k, field(1:ncol_for_outfld,k)
+ !      end do
+ !   end if
 
 
   end subroutine outfld

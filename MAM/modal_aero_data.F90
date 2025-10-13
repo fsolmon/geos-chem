@@ -72,9 +72,10 @@
        12.0_r8,   12.0_r8,   12.0_r8,  58.5_r8, 135.0_r8, &
        250092.0_r8 /)
 #elif ( defined MODAL_AERO_4MODE )
-    real(r8), parameter :: specmw_amode(ntot_aspectype)   = (/ 115.0_r8, 115.0_r8,  62.0_r8, &
-       12.0_r8,   12.0_r8,   12.0_r8,  58.5_r8, 135.0_r8 /)
-#elif ( defined MODAL_AERO_3MODE )
+!FAB test  SOA 150  , SO4 96 
+    real(r8), parameter :: specmw_amode(ntot_aspectype)   = (/ 96.0_r8, 18.0_r8,  62.0_r8, &
+       12.0_r8,   150.0_r8,   12.0_r8,  58.5_r8, 135.0_r8 /)
+#elif ( defined MODAL_AGEOSChem.Mam.20190701_1800z.nc4ERO_3MODE )
     real(r8), parameter :: specmw_amode(ntot_aspectype)   = (/ 115.0_r8, 115.0_r8,  62.0_r8, &
        12.0_r8,   12.0_r8,   12.0_r8,  58.5_r8, 135.0_r8 /)
 #endif

@@ -51,11 +51,11 @@ module physics_types
 
 ! real(r8), dimension(pcols,pver)        :: &
 
-real(r8), dimension(:),   allocatable :: &
+real(r8), dimension(:),   pointer  :: &
           pblh
 
 
-real(r8), dimension(:,:), allocatable :: &   
+real(r8), dimension(:,:), pointer :: &   
            t,       &! temperature (K)
           pmid,     &! midpoint pressure (Pa) 
           pdel,     & ! layer thickness (Pa)
@@ -64,17 +64,18 @@ real(r8), dimension(:,:), allocatable :: &
           relhum,   & ! layer relative humidity
           qv,       &     ! layer specific humidity
           aircon
-real(r8), dimension(:,:), allocatable :: &
+real(r8), dimension(:,:), pointer :: &
            ph2so4,       &! prod h2so4 kg/kg/s 
            paqso4         ! aq prod so4 kg/kg/s  
 
-real(r8), dimension(:,:,:), allocatable     :: &    
+real(r8), dimension(:,:,:), pointer     :: &    
           q, &         ! constituent mixing ratio (kg/kg moist or dry air depending on type)
           qqcw, &      ! Cloudborne aerosol MR array
           dgncur_a, &  !
           dgncur_awet,&! 
           qaerwat, &    !
-          wetdens
+          wetdens, &
+          hygro 
 
 
   end type physics_state

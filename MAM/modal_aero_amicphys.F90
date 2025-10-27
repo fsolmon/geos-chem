@@ -536,7 +536,7 @@ implicit none
          end do
       end if
       end if
-print*,'fab debut ncol, pcol ',  ncol, pcols
+
       do_cond   = ( mdo_gasaerexch > 0 )
       do_rename = ( mdo_rename > 0 )
       do_newnuc = ( mdo_newnuc > 0 )

@@ -41,6 +41,8 @@ integer :: dgnum_idx          = 0
 integer :: dgnumwet_idx       = 0
 integer :: wetdens_ap_idx     = 0
 integer :: qaerwat_idx        = 0
+!FAB
+integer :: hygro_idx        = 0
 
 logical :: pergro_mods           = .false.
 #ifdef verify_wateruptake
@@ -60,10 +62,9 @@ subroutine modal_aero_wateruptake_reg()
    call rad_cnst_get_info(0, nmodes=nmodes)
    call pbuf_add_field('DGNUMWET',   'global',  dtype_r8, (/pcols, pver, nmodes/), dgnumwet_idx)
    call pbuf_add_field('WETDENS_AP', 'physpkg', dtype_r8, (/pcols, pver, nmodes/), wetdens_ap_idx)
-
    ! 1st order rate for direct conversion of strat. cloud water to precip (1/s)
    call pbuf_add_field('QAERWAT',    'physpkg', dtype_r8, (/pcols, pver, nmodes/), qaerwat_idx)  
-
+call pbuf_add_field('HYGRO', 'physpkg', dtype_r8, (/pcols, pver, nmodes/), hygro_idx)
 end subroutine modal_aero_wateruptake_reg
 
 !===============================================================================
@@ -132,7 +133,7 @@ end subroutine modal_aero_wateruptake_init
 
 
 subroutine modal_aero_wateruptake_dr(state, pbuf, list_idx_in, dgnumdry_m, &
-                                     dgnumwet_m, qaerwat_m, wetdens_m      ) 
+                                     dgnumwet_m, qaerwat_m, wetdens_m, hygro_m      ) 
 !-----------------------------------------------------------------------
 !
 ! CAM specific driver for modal aerosol water uptake code.
@@ -152,7 +153,7 @@ subroutine modal_aero_wateruptake_dr(state, pbuf, list_idx_in, dgnumdry_m, &
    real(r8), optional,          pointer       :: dgnumwet_m(:,:,:)
    real(r8), optional,          pointer       :: qaerwat_m(:,:,:)
    real(r8), optional,          pointer       :: wetdens_m(:,:,:)
-
+   real(r8), optional,          pointer       :: hygro_m(:,:,:)
    ! local variables
 
    integer  :: lchnk                         ! chunk index
@@ -175,9 +176,11 @@ subroutine modal_aero_wateruptake_dr(state, pbuf, list_idx_in, dgnumdry_m, &
    real(r8), pointer :: dgncur_awet(:,:,:)
    real(r8), pointer :: wetdens(:,:,:)
    real(r8), pointer :: qaerwat(:,:,:)
+   real(r8), pointer :: hygro(:,:,:)
 
    real(r8), allocatable :: maer(:,:,:)      ! aerosol wet mass MR (including water) (kg/kg-air)
-   real(r8), allocatable :: hygro(:,:,:)     ! volume-weighted mean hygroscopicity (--)
+
+   !FAB interface hygro   real(r8), allocatable :: hygro(:,:,:)     ! volume-weighted mean hygroscopicity (--)
    real(r8), allocatable :: naer(:,:,:)      ! aerosol number MR (bounded!) (#/kg-air)
    real(r8), allocatable :: dryvol(:,:,:)    ! single-particle-mean dry volume (m3)
    real(r8), allocatable :: dryrad(:,:,:)    ! dry volume mean radius of aerosol (m)
@@ -238,7 +241,7 @@ subroutine modal_aero_wateruptake_dr(state, pbuf, list_idx_in, dgnumdry_m, &
 
    allocate( &
       maer(pcols,pver,nmodes),     &
-      hygro(pcols,pver,nmodes),    &
+!FAB      hygro(pcols,pver,nmodes),    &
       naer(pcols,pver,nmodes),     &
       dryvol(pcols,pver,nmodes),   &
       drymass(pcols,pver,nmodes),  &
@@ -248,20 +251,23 @@ subroutine modal_aero_wateruptake_dr(state, pbuf, list_idx_in, dgnumdry_m, &
       specdens_1(nmodes)           )
 
    maer(:,:,:)     = 0._r8
-   hygro(:,:,:)    = 0._r8
+!   hygro(:,:,:)    = 0._r8
 
    if (list_idx == 0) then
       call pbuf_get_field(pbuf, dgnum_idx,      dgncur_a )
       call pbuf_get_field(pbuf, dgnumwet_idx,   dgncur_awet )
       call pbuf_get_field(pbuf, wetdens_ap_idx, wetdens)
       call pbuf_get_field(pbuf, qaerwat_idx,    qaerwat)
+      call pbuf_get_field(pbuf, hygro_idx,    hygro)
    else
       dgncur_a    => dgnumdry_m
       dgncur_awet => dgnumwet_m
       qaerwat     => qaerwat_m
       wetdens     => wetdens_m
+      hygro       => hygro_m
    end if
 
+   hygro(:,:,:)    = 0._r8
    ! Step1: prepare the necessary input data (at chunk level) to solve Kohler equation
    !        the necessary input includes 1) clear-sky relative humidty; 2) volume-mean hygroscopicity; 3) dry radius/volume/mass
    do m = 1, nmodes
@@ -386,8 +392,9 @@ subroutine modal_aero_wateruptake_dr(state, pbuf, list_idx_in, dgnumdry_m, &
          call outfld( 'aero_water',  aerosol_water(:ncol,:),    ncol, lchnk)
 
    end if
+!FAB remove hygro from deallocate since now an argument
    deallocate( &
-      maer,   hygro,     naer,       dryvol,    drymass,    &
+      maer,     naer,       dryvol,    drymass,    &
       dryrad, rhcrystal, rhdeliques, specdens_1             )
 end subroutine modal_aero_wateruptake_dr
 

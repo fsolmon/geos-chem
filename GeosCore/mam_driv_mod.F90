@@ -29,7 +29,7 @@ PRIVATE
 
 !PUBLIC MEMBER FUNCTIONS:
 
-PUBLIC :: MAM_DRIV, MAM_INIT 
+PUBLIC :: MAM_DRIV, MAM_INIT, MAM_APPLY_RAINOUT_EFF 
 
 ! !REMARKS:
 !  The MAM model was designed and developed for implementation into GEOS-Chem
@@ -83,7 +83,7 @@ integer nmamgc ! number of GC advected MAM tracers
     real(r8) :: deltat
 
     logical, save  :: lfirstcall
-
+    logical, save  :: is_cbsim
 
 CONTAINS
 !EOC
@@ -191,7 +191,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
 
     DO L = 1, State_Grid%NZ
     DO J = 1, State_Grid%NY
-    DO I = 1, State_Grid%NX ! GEOS-Chem vertical grid is bottom-up
+    DO I = 1, State_Grid%NX 
       n = J + (I-1)*State_Grid%NY 
       physta%t(n,L) = State_Met%T(I,J,L)
       physta%pdel(n,l) = State_Met%DELP(I,J,L) * 100._r8 ! hPa to Pa 
@@ -235,15 +235,22 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     DO J = 1, State_Grid%NY
     DO I = 1, State_Grid%NX ! GEOS-Chem vertical grid is bottom-up
       n = J + (I-1)*State_Grid%NY         
-     do s = 1 , nmamgc
-        !number concentrations #/gridbox and convert to #/kg 
-        !mass concentrations Kg/gridbox to Kg/Kg (mixing ratios) 
-        if (.not. mamgc(s)%iscb ) then
-          physta%q(n,l,mamgc(s)%mamind) = Spc(mamgc(s)%gcind)%Conc(I,J,L)/State_Met%AD(I,J,L) !
-        else
-          physta%qqcw(n,l,mamgc(s)%mamind) = Spc(mamgc(s)%gcind)%Conc(I,J,L)/State_Met%AD(I,J,L) !
-        end if
-     end do  
+      !number concentrations #/gridbox and convert to #/kg 
+      !mass concentrations Kg/gridbox to Kg/Kg (mixing ratios) 
+
+       if(.not. is_cbsim) then !cloud borne state is not considered    
+         do s = 1 , nmamgc
+           physta%q(n,l,mamgc(s)%mamind) = Spc(mamgc(s)%gcind)%Conc(I,J,L)/State_Met%AD(I,J,L) 
+         end do
+       else !cloud born and interstitial states are considered       
+         do s = 1 , nmamgc
+           if (.not. mamgc(s)%iscb ) then
+             physta%q(n,l,mamgc(s)%mamind) = Spc(mamgc(s)%gcind)%Conc(I,J,L)/State_Met%AD(I,J,L) !
+           else
+             physta%qqcw(n,l,mamgc(s)%mamind) = Spc(mamgc(s)%gcind)%Conc(I,J,L)/State_Met%AD(I,J,L) !
+           end if
+         end do  
+       end if  
     END DO
     END DO
     END DO
@@ -280,7 +287,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
 ! CALCSIZE INTERFACE     
      
 call load_pbuf( pbuf, lchnk, pcols, &
-        physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens )
+        physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens,physta%hygro )
 
 ! call calcsize
     ptend%lq = .false.
@@ -290,7 +297,7 @@ call load_pbuf( pbuf, lchnk, pcols, &
 
 ! unload pbuf
       call unload_pbuf( pbuf, lchnk, pcols, &
-         physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens )
+         physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens,physta%hygro )
 !
 ! apply tendencies ! note ptend.lq is modified by calcsize
 ! note also that the cloudborne state is supposed to be directly updated in calcsize
@@ -312,14 +319,13 @@ call load_pbuf( pbuf, lchnk, pcols, &
 
 ! WATER UPTAKE    
      call load_pbuf( pbuf, lchnk, pcols, &
-        physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens )
+        physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens, physta%hygro )
 !
-     call modal_aero_wateruptake_dr( physta, pbuf )
+     call modal_aero_wateruptake_dr( physta, pbuf)
      
      call unload_pbuf( pbuf, lchnk, pcols, &
-         physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens )
+         physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens,physta%hygro )
 
- 
 !-------------------------------------------------------------------------------- 
 ! switch from q & qqcw mass mixing ratios to volume mixing ratios  vmr and vmrcw
 ! only adress the gas/aerosol variables in q, qqcw 
@@ -352,9 +358,13 @@ call load_pbuf( pbuf, lchnk, pcols, &
         !start by updating mass in the accumulation mode 
         !(consider partitioning with aitken )
         l2 = lptr_so4_cw_amode(modeptr_accum) - loffset
-        vmrcw(1:pcols,1:pver,l2) = vmrcw(1:pcols,1:pver,l2) +  & 
+        if (is_cbsim) then
+          vmrcw(1:pcols,1:pver,l2) = vmrcw(1:pcols,1:pver,l2) +  & 
                                    physta%paqso4(1:pcols,1:pver)*mwdry/adv_mass(l2)*deltat
-
+        else  ! consider all aersol intersticial
+          vmr(1:pcols,1:pver,l2) = vmr(1:pcols,1:pver,l2) +  &
+                                   physta%paqso4(1:pcols,1:pver)*mwdry/adv_mass(l2)*deltat
+        end if        
       end if
 
 !------------------------------
@@ -392,16 +402,23 @@ call load_pbuf( pbuf, lchnk, pcols, &
      DO J = 1, State_Grid%NY
      DO I = 1, State_Grid%NX
         n = J + (I-1)*State_Grid%NY
-        !both for interstitial and cloudborne states
-        do s =1, nmamgc
-        if(.not. mamgc(s)%iscb) then   
+       
+        if (.not.is_cbsim) then ! there is no cloud borne state 
+          do s =1, nmamgc  
             Spc(mamgc(s)%gcind)%Conc(I,J,L) = physta%q(n,l,mamgc(s)%mamind) &
-                * State_Met%AD(I,J,L)
-        else
-            Spc(mamgc(s)%gcind)%Conc(I,J,L) = physta%qqcw(n,l,mamgc(s)%mamind) &
-                                          * State_Met%AD(I,J,L)
-        end if
-        end do
+                                            * State_Met%AD(I,J,L)
+          end do
+        else  ! there is a cloud-borne state
+            do s =1, nmamgc                                  
+              if ( .not. mamgc(s)%iscb) then
+                Spc(mamgc(s)%gcind)%Conc(I,J,L) = physta%q(n,l,mamgc(s)%mamind) &
+                                              * State_Met%AD(I,J,L)
+               else ! treat cloudborne    
+                 Spc(mamgc(s)%gcind)%Conc(I,J,L) = physta%qqcw(n,l,mamgc(s)%mamind) &
+                      * State_Met%AD(I,J,L)
+               end if
+           end do
+         end if   
         !gas species affected by mam 
         Spc(Ind_('SOAP'))%Conc(I,J,L) = physta%q(n,l,l_soag) &
                                        * State_Met%AD(I,J,L)  
@@ -437,6 +454,12 @@ call load_pbuf( pbuf, lchnk, pcols, &
                                             *exp(3._r8*(alnsg_amode(m)**2))
         ! wet aer density
         State_Chm%GCMAM(m)%aerdens(I,J,L) =  physta%wetdens(n,L,m)         
+
+        ! volume mean hygroscopicity 
+        State_Chm%GCMAM(m)%hygro(I,J,L) =  physta%hygro(n,L,m)  
+
+        ! aerosol water concentration
+        State_Chm%GCMAM(m)%aerwat(I,J,L) =  physta%qaerwat(n,L,m)
 
         !modal number concentrations in #.m-3
         State_Chm%GCMAM(m)%Nu(I,J,L) =              &
@@ -543,6 +566,9 @@ SUBROUTINE MAM_INIT( Input_Opt, State_Chm,  State_Diag, State_Grid, RC )
    mdo_newnuc=1
    mdo_coag=1
 
+   is_cbsim = .false.
+
+
    masterproc = Input_Opt%amIRoot
    lfirstcall = .true.
 ! Chemistry timestep [s]
@@ -558,7 +584,6 @@ plev = pver
 !anyway you should revisit these printing in GC context.
 ncol_for_outfld = 1
 
-!pcols pver pourraient just passer par module plutot que par argument
 call MAM_init_basics(pbuf)
 
 !allocate MAM state object
@@ -568,8 +593,11 @@ call MAM_ALLOCATE (physta,ptend )
 ALLOCATE( PSO4AQ_RATE(State_Grid%NX,State_Grid%NY,State_Grid%NZ) )
 ALLOCATE( H2SO4_RATE(State_Grid%NX,State_Grid%NY,State_Grid%NZ) )
 ALLOCATE( PSO4_SO2MAM(State_Grid%NX,State_Grid%NY,State_Grid%NZ) )
+
+
+
 !Initialize MAM4/GC transported tracer info  
-!Rq allocate according to MAM option , start with MAM 4 , to be refined 
+
 nmamgc = State_Chm%nMam
 allocate(mamgc(State_Chm%nMam)) 
 
@@ -581,9 +609,9 @@ do i = 1, State_Chm%nMam
  mamgc(i)%isnum = State_Chm%SpcData(m )%Info%MP_SizeResNum
  mamgc(i)%iscb = State_Chm%SpcData(m )%Info%Is_CloudBorne
 ! add maping info for mam q and qqcw states 
-! test name and  for cloud borne - important species in q and qqcw have the same indexing
+! test name and  for cloud borne simulation - important species in q and qqcw have the same indexing
  s=4 ! work only for MAMXXX naming convention
- if (mamgc(i)%iscb) s=6
+ if (is_cbsim .and. mamgc(i)%iscb) s=6
  mamgc(i)%mamind =-1
  !mam modal indices should match existing species and be > 0 
  !should also be consistent with the allocation state of 
@@ -599,19 +627,27 @@ do i = 1, State_Chm%nMam
 ! to be updated when adding species to MAM
 end do
 
+ if ( masterproc) then 
   print*, 'MAM species INFO'
   print*, mamgc(:)%name
   print*, mamgc(:)%gcind
   print*, mamgc(:)%mamind
   print*, mamgc(:)%modId
   print*, mamgc(:)%isnum
-   print*, mamgc(:)%iscb
+  print*, mamgc(:)%iscb
+ endif 
+ if (is_cbsim .and. .not.any(mamgc(:)%name(1:5)=='MAMCB')) then
+     print*, 'CloudBorne aerosol simulation enabled but no MAMCBxx species present in Species list !' 
+     stop    
+ end if         
+
+
 END SUBROUTINE MAM_INIT        
 
 
 !-------------------------------------------------------------------------------
 subroutine load_pbuf( pbuf, lchnk, ncol,  &
-         cld, qqcw, dgncur_a, dgncur_awet, qaerwat, wetdens )
+         cld, qqcw, dgncur_a, dgncur_awet, qaerwat, wetdens,hygro)
 
 
       use mam_utils, only: pcols,pver
@@ -636,7 +672,7 @@ subroutine load_pbuf( pbuf, lchnk, ncol,  &
       real(r8), intent(in   ) :: dgncur_awet(pcols,pver,ntot_amode)
       real(r8), intent(in   ) :: qaerwat(pcols,pver,ntot_amode)
       real(r8), intent(in   ) :: wetdens(pcols,pver,ntot_amode)
-
+      real(r8), intent(in   ) :: hygro(pcols,pver,ntot_amode)
       integer :: idx, l, ll, n
 
       real(r8), pointer :: fldcw(:,:)
@@ -645,6 +681,8 @@ subroutine load_pbuf( pbuf, lchnk, ncol,  &
       real(r8), pointer :: ydgnumwet(:,:,:)
       real(r8), pointer :: yqaerwat(:,:,:)
       real(r8), pointer :: ywetdens(:,:,:)
+      real(r8), pointer :: yhygro(:,:,:)
+ 
 
  ! FAB ncol = pcols , maybe getrif of it   
       idx = pbuf_get_index( 'CLD' )
@@ -672,6 +710,11 @@ subroutine load_pbuf( pbuf, lchnk, ncol,  &
       ywetdens(:,:,:) = 0.0_r8
       ywetdens(1:ncol,:,:) = wetdens(1:ncol,:,:)
       
+      idx = pbuf_get_index( 'HYGRO' )
+      call pbuf_get_field( pbuf, idx, yhygro )
+      yhygro(:,:,:) = 0.0_r8
+      yhygro(1:ncol,:,:) = hygro(1:ncol,:,:)
+
       do n = 1, ntot_amode
       do ll = 0, nspec_amode(n)
          l = numptrcw_amode(n)
@@ -689,7 +732,7 @@ subroutine load_pbuf( pbuf, lchnk, ncol,  &
 
 !-------------------------------------------------------------------------------
       subroutine unload_pbuf( pbuf, lchnk, ncol, &
-         cld, qqcw, dgncur_a, dgncur_awet, qaerwat, wetdens )
+         cld, qqcw, dgncur_a, dgncur_awet, qaerwat, wetdens,hygro )
 
       use mam_utils, only: pcols,pver
       use constituents, only : pcnst
@@ -714,6 +757,7 @@ subroutine load_pbuf( pbuf, lchnk, ncol,  &
       real(r8), intent(inout) :: dgncur_awet(pcols,pver,ntot_amode)
       real(r8), intent(inout) :: qaerwat(pcols,pver,ntot_amode)
       real(r8), intent(inout) :: wetdens(pcols,pver,ntot_amode)
+      real(r8), intent(inout) :: hygro(pcols,pver,ntot_amode)
 
       integer :: i, idx, k, l, ll, n
       real(r8) :: tmpa
@@ -724,6 +768,7 @@ subroutine load_pbuf( pbuf, lchnk, ncol,  &
       real(r8), pointer :: ydgnumwet(:,:,:)
       real(r8), pointer :: yqaerwat(:,:,:)
       real(r8), pointer :: ywetdens(:,:,:)
+      real(r8), pointer :: yhygro(:,:,:)
 
 
       idx = pbuf_get_index( 'CLD' )
@@ -751,6 +796,11 @@ subroutine load_pbuf( pbuf, lchnk, ncol,  &
       idx = pbuf_get_index( 'WETDENS_AP' )
       call pbuf_get_field( pbuf, idx, ywetdens )
       wetdens(1:ncol,:,:) = ywetdens(1:ncol,:,:)
+
+      idx = pbuf_get_index( 'HYGRO' )
+      call pbuf_get_field( pbuf, idx, yhygro )
+      hygro(1:ncol,:,:) = yhygro(1:ncol,:,:)
+
 
       do n = 1, ntot_amode
       do ll = 0, nspec_amode(n)
@@ -1033,9 +1083,6 @@ USE Input_Opt_Mod,  ONLY : OptInput
     ErrMsg   = ''
     ThisLoc  = ' -> at Set_AerMass_Diagnostic (in module GeosCore/aerosol_mod.F90)'
 
-
-! 
-
     !$OMP PARALLEL DO         &
     !$OMP DEFAULT( SHARED   ) &
     !$OMP PRIVATE( I, J, L  )
@@ -1110,6 +1157,105 @@ USE Input_Opt_Mod,  ONLY : OptInput
    ENDDO
 
 END SUBROUTINE Set_MAM_Diagnostic
+
+
+!EOC
+!------------------------------------------------------------------------------
+!                  GEOS-Chem Global Chemical Transport Model                  !
+!------------------------------------------------------------------------------
+!BOP
+!
+! !IROUTINE: apply_rainout_eff
+!
+! !DESCRIPTION: Subroutine APPLY\_RAINOUT\_EFF multiplies the rainout fraction
+!  computed by RAINOUT with the rainout efficiency for one of 3 temperature
+!  ranges: (1) T < 237 K; (2) 237 K <= T < 258 K; (3) T > 258 K. The rainout
+!  efficiencies for each aerosol species are defined in the species database
+!  object (i.e. State\_Chm%SpcData(:)%Info).
+!\\
+!\\
+!  This allows us to apply the impaction scavenging of certain aerosol species
+!  (BC, dust, HNO3) as implemented by Qiaoqiao Wang, while also suppressing
+!  rainout for other aerosol species.  The prior code achieved this by using
+!  a large and confusing IF statement, whose logic was hard to understand.
+!\\
+!\\
+! !INTERFACE:
+!
+  SUBROUTINE MAM_APPLY_RAINOUT_EFF( hygro, TK, SpcInfo, RainFrac )
+!
+! !USES:
+!
+    USE Species_Mod, ONLY : Species
+    USE State_Chm_Mod, ONLY : ChmState
+!
+! !INPUT PARAMETERS:
+!
+!    INTEGER        INTENT(IN)    :: I,J,L      ! loop indices 
+    REAL(fp),      INTENT(IN)    :: TK         ! Temperature [K]
+    REAL(fp),      INTENT(IN)    :: hygro      ! mode hygroscopicty
+    TYPE(Species), INTENT(IN)    :: SpcInfo    ! Species Database object
+                                               ! mode index notably
+!
+! !INPUT/OUTPUT PARAMETERS:
+!
+    REAL(fp),      INTENT(INOUT) :: RainFrac   ! Rainout fraction
+
+! LOCAL 
+    REAL(fp)                   :: RainoutEff    
+! !REVISION HISTORY:
+!  06 Jan 2015 - R. Yantosca - Initial version
+!  See https://github.com/geoschem/geos-chem for complete history
+!EOP
+!------------------------------------------------------------------------------
+!BOC
+!
+! !LOCAL VARIABLES:
+!
+
+    Rainouteff = 0._fp
+    
+    ! Apply hygro-temperature-mode dependent rainout efficiencies
+ 
+    IF ( TK < 258.0_fp ) THEN ! cold and mixed phase clouds 
+       ! Ice: T < 237 K
+       ! first approach : value set following arguments developped in Luo et al., 2020
+       ! perhaps find more appropriate rational ( use mode modal species composition)  
+      if (SpcInfo%MamModId == 1) then ! Accum 
+         if(hygro > 0.5_fp ) then 
+            Rainouteff = 0.4_fp
+         else 
+            Rainouteff = 0.6_fp 
+         end if
+      end if
+
+      if (SpcInfo%MammodId == 2)  Rainouteff = 0.08_fp  !Aitken assumed to    
+
+      if (SpcInfo%MamModId == 3) then !coarse
+         if(hygro > 0.4_fp ) then 
+             Rainouteff = 0.4_fp ! scavenge like hydrophilic 
+         else
+             Rainouteff = 1._fp ! likely coarse dust dominated      
+         end if
+       end if    
+
+       if (SpcInfo%MamModId == 4)  Rainouteff = 0.5_fp !MAM primary carbon : hydrophobic
+         
+       if ( TK >= 237.0_fp )  then  ! mixed phase , temp. correction ( Luo et al., 2020)
+             Rainouteff = Rainouteff * &
+             ( EXP( 0.46_fp * ( 273.16_fp - TK ) - 11.6_fp ) / 153.5_fp )
+       end if 
+
+    ELSE ! warm clouds, Liquid rain: T > 258 K
+         ! consider that rainout efficiency equals MAM hygroscopcity, limited to 1. 
+           Rainouteff = min(hygro,1._fp) 
+    ENDIF
+
+     RainFrac = RainFrac * Rainouteff
+
+  END SUBROUTINE MAM_APPLY_RAINOUT_EFF
+
+
 
 END MODULE MAM_DRIV_MOD
 

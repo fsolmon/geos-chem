@@ -896,11 +896,12 @@ CONTAINS
     ! ( more or less hydrophilic) in species_database.yml ...perhaps hat could b    
     !  revisisited accoutning for modal composition or effective hygroscopicity ..     
    
-       IF(SpcInfo%MamModId > 0 .and. .not.SpcInfo%Is_CloudBorne) THEN 
+       IF(SpcInfo%MamModId > 0 ) THEN !FAB revisit .and. .not.SpcInfo%Is_CloudBorne) THEN 
           CALL F_AEROSOL( KC, KcScale, Input_Opt, State_Grid, State_Met, F )
             IF ( SpcInfo%WD_AerScavEff > 0.0_fp ) THEN
-               F = F * SpcInfo%WD_AerScavEff
-            ENDIF
+              ! F = F * SpcInfo%WD_AerScavEff
+                F = F * State_Chm%GCMAM(SpcInfo%MamModId)%hygro
+           ENDIF
        END IF
 #endif 
 
@@ -934,11 +935,11 @@ CONTAINS
 #endif
 #ifdef MODAL_AERO_4MODE
     ! FAB apply also for number concentrations  SpcInfo%MP_SizeResNum   
-       IF(SpcInfo%MamModId > 0 .and. .not.SpcInfo%Is_CloudBorne) THEN
+       IF(SpcInfo%MamModId > 0 ) THEN !.and. .not.SpcInfo%Is_CloudBorne) THEN
           CALL F_AEROSOL( KC, KcScale, Input_Opt, State_Grid, State_Met, F )
             IF ( SpcInfo%WD_AerScavEff > 0.0_fp ) THEN
-               F = F * SpcInfo%WD_AerScavEff
-            ENDIF
+               F = F * State_Chm%GCMAM(SpcInfo%MamModId)%hygro
+         ENDIF
        END IF
 #endif 
 
@@ -1239,6 +1240,9 @@ CONTAINS
     USE Species_Mod,   ONLY : Species
     USE State_Chm_Mod, ONLY : ChmState
     USE State_Met_Mod, ONLY : MetState
+#ifdef MODAL_AERO_4MODE
+    USE MAM_DRIV_MOD, ONLY : MAM_APPLY_RAINOUT_EFF
+#endif
 !
 ! !INPUT PARAMETERS:
 !
@@ -1463,8 +1467,17 @@ CONTAINS
 
        ! Apply temperature-dependent rainout efficiencies
        ! This accounts for impaction scavenging of certain aerosols
+!FAB
+#ifdef MODAL_AERO_4MODE 
+       if (SpcInfo%MamModId > 0 ) then !    
+         CALL MAM_APPLY_RAINOUT_EFF(State_Chm%GCMAM(SpcInfo%MamModId)%hygro(I,J,L), &
+                                     p_T, SpcInfo, RAINFRAC )
+       else 
+         CALL APPLY_RAINOUT_EFF( p_T, SpcInfo, RAINFRAC )
+       endif               
+#else
        CALL APPLY_RAINOUT_EFF( p_T, SpcInfo, RAINFRAC )
-
+#endif 
     ENDIF
 #endif
 
@@ -1926,7 +1939,7 @@ CONTAINS
 !FAB 
 #ifdef MODAL_AERO_4MODE
        ! wahout only applies to MAM species and intersticial state
-       IF(SpcInfo%MamModId > 0 .and. .not.SpcInfo%Is_CloudBorne) THEN                
+       IF(SpcInfo%MamModId > 0 )THEN !FAB pb .and. .not.SpcInfo%Is_CloudBorne) THEN                
            KIN = .TRUE.
            RIN = 0.0_fp
            IF(SpcInfo%MP_SizeResNum)THEN
@@ -1937,7 +1950,7 @@ CONTAINS
                                           %wetrad(I,J,L)
             END IF
             CALL WASHFRAC_APMSIZE_AEROSOL(RIN, DT, F, PP, TK, WASHFRAC)
-       ENDIF
+         ENDIF
 #endif
 #ifdef TOMAS
        ! Washout is a kinetic process
@@ -4134,8 +4147,8 @@ CONTAINS
 #endif
        ! Call subroutine RAINOUT to comptue the fraction
        ! of species lost to rainout in grid box (I,J,L)
-       CALL RAINOUT( I, J, L, N, K_RAIN, DT, F_RAINOUT, RAINFRAC,            &
-                     Input_Opt, State_Met, State_Chm, RC )
+         CALL RAINOUT( I, J, L, N, K_RAIN, DT, F_RAINOUT, RAINFRAC,            &
+                Input_Opt, State_Met, State_Chm, RC )
 
        ! Trap potential errors
        IF ( RC /= GC_SUCCESS ) THEN

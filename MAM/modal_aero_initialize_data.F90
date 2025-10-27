@@ -1528,6 +1528,7 @@ end if
         allocate(state%dgncur_awet(pcols,pver,ntot_amode),stat=as)
         allocate(state%qaerwat(pcols,pver,ntot_amode),stat=as)
         allocate(state%wetdens(pcols,pver,ntot_amode),stat=as)
+        allocate(state%hygro(pcols,pver,ntot_amode),stat=as)
 
         allocate(ptend%q(pcols,pver,pcnst))
         allocate(ptend%lq(pcnst))
@@ -1546,6 +1547,7 @@ end if
         state%qqcw =0._r8
         state%dgncur_a =0._r8
         state%dgncur_awet =0._r8
+        state%hygro =0._r8
         state%qaerwat =0._r8
         state%wetdens =0._r8
         state%aircon = 0._r8

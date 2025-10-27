@@ -36,7 +36,9 @@ MODULE Mam_container_Mod
      REAL(fp), POINTER :: nudryrad (:,:,:) !num geo mean dry radius 
      REAL(fp), POINTER :: nuwetrad (:,:,:) !------------ wet radius 
      REAL(fp), POINTER :: aerdens(:,:,:) ! aerosol effective density  
- 
+     REAL(fp), POINTER :: hygro(:,:,:) ! aerosol hygroscopicity (volume average)   
+
+     REAL(fp), POINTER :: aerwat(:,:,:)!mam water mass concentration
      REAL(fp), POINTER :: so4(:,:,:) ! mam so4 mass concentration 
      REAL(fp), POINTER :: bc(:,:,:) ! mam  mass concentration 
      REAL(fp), POINTER :: pom(:,:,:) ! mam  mass concentration 
@@ -181,11 +183,29 @@ CONTAINS
     ENDIF
     GCMAM(n)%AERDENS = 1500._fp ! default needs to be fixes for first time step
 
+    ALLOCATE( GCMAM(n)%hygro( NX, NY, NZ ), STAT=RC )
+    CALL GC_CheckVar( 'HYGRO', 0, RC )
+    IF ( RC /= GC_SUCCESS ) THEN
+       errMsg = 'Error allocating array AERDENS!'
+       CALL GC_Error( errMsg, RC, thisLoc )
+       RETURN
+    ENDIF
+    GCMAM(n)%hygro = 0.2_fp ! default needs to be fixes for first time step
 
+   ALLOCATE( GCMAM(n)%aerwat( NX, NY, NZ ), STAT=RC )
+    CALL GC_CheckVar( 'AERWAT', 0, RC )
+    IF ( RC /= GC_SUCCESS ) THEN
+       errMsg = 'Error allocating array AERWAT!'
+       CALL GC_Error( errMsg, RC, thisLoc )
+       RETURN
+    ENDIF
+    GCMAM(n)%aerwat = 0._fp ! default needs to be fixes for first time step
+    
+    
 ! now define the mass concentration per mode. They will be used for diagnostics and for 
 ! input to e.g. optical depth, Fast-J etc . Note that for each MAM mode, 
 ! not all species are relevant and corresponding mass array are not allocated to save mem !
-! Always think making an if allocated test when using GCMAM(n)%spec(:,:,:) elsewhere in the code.
+! Always think making an appropriate est when using GCMAM(n)%spec(:,:,:) elsewhere in the code.
 ! The info on relevant species per mode is accessible through the species_data.yml  
 ! 
     do s = 1,size(SpcLocData)
@@ -264,8 +284,6 @@ CONTAINS
       end if ! its a mam species mode n   
     end do ! loop species 
 
-    print*, 'FAB mam container lso4' , n, GCMAM(n)%lso4
-
 ! initialize ratios by considering the default MAM modal diameters and standard dev
 !
     if (n==1)   GCMAM(n)%vol2num =  3.0312191595848506E+020_fp
@@ -343,7 +361,23 @@ CONTAINS
        CALL GC_CheckVar( 'MAM%aerdens', 2, RC )
        IF ( RC /= GC_SUCCESS ) RETURN
        GCMAM(n)%aerdens => NULL()
-    ENDIF
+     ENDIF
+
+     IF ( ASSOCIATED(GCMAM(n)%hygro ) ) THEN
+       DEALLOCATE( GCMAM(n)%hygro, STAT=RC )
+       CALL GC_CheckVar( 'MAM%hygro', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%hygro => NULL()
+     ENDIF
+
+     IF ( ASSOCIATED(GCMAM(n)%aerwat ) ) THEN
+       DEALLOCATE( GCMAM(n)%aerwat, STAT=RC )
+       CALL GC_CheckVar( 'MAM%aerwat', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%aerwat => NULL()
+     ENDIF
+
+
     END DO 
    
   END SUBROUTINE Cleanup_MAM_Container

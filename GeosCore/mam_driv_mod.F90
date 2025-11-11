@@ -81,7 +81,7 @@ integer nmamgc ! number of GC advected MAM tracers
     integer:: loffset, lchnk
 
     real(r8) :: deltat
-
+    integer, save  :: mamstep ! number of elapsed mam call since first call
     logical, save  :: lfirstcall
     logical, save  :: is_cbsim
 
@@ -149,12 +149,6 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
 !------------------------------------------------------------------------------
 !BOC
 !
-! !DEFINED PARAMETERS:
-!
-    real(kind=8), parameter :: cpdair = 1.004e3  ! Specific heat capacity
-                                                 ! of dry air at constant
-                                                 ! pressure at 273 K
-                                                 ! (J kg-1 K-1)
 !
 ! !LOCAL VARIABLES:
 !
@@ -174,11 +168,15 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       real(r8) :: tau_gaschem_simple(pcols,pver)
       integer :: latndx(pcols),lonndx(pcols)                 !required by the mam interface
                                                 !not used now potentiall usefull for diags 
-      integer :: nstep                          !same
       character(len=8) :: spcnam
 !--------------------------------------------------------------------------
 
-       
+
+    if ( lfirstcall ) then
+           mamstep = 1
+    else 
+           mamstep =mamstep+1
+    end if        
     ! Point to Spc
     Spc => State_Chm%Species
 !     if (masterproc) then
@@ -188,7 +186,8 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     ! load the mam met state   
     physta%lchnk = lchnk
     physta%ncol  = pcols
-
+    
+    
     DO L = 1, State_Grid%NZ
     DO J = 1, State_Grid%NY
     DO I = 1, State_Grid%NX 
@@ -321,7 +320,7 @@ call load_pbuf( pbuf, lchnk, pcols, &
      call load_pbuf( pbuf, lchnk, pcols, &
         physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens, physta%hygro )
 !
-     call modal_aero_wateruptake_dr( physta, pbuf)
+     call modal_aero_wateruptake_dr( physta, pbuf, deltat, mamstep)
      
      call unload_pbuf( pbuf, lchnk, pcols, &
          physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens,physta%hygro )
@@ -368,12 +367,11 @@ call load_pbuf( pbuf, lchnk, pcols, &
       end if
 
 !------------------------------
-  nstep = 4 ! get the GC integration step counter ( used only for print out in fact) 
   if(.true.) then ! .and. masterproc ) then
      call modal_aero_amicphys_intr(               &
          mdo_gasaerexch,     mdo_rename,          &
          mdo_newnuc,         mdo_coag,            &
-         lchnk,    pcols,     nstep   ,           &
+         lchnk,    pcols,     mamstep   ,           &
          loffset,  deltat,                        &
          latndx,   lonndx,                        &
          physta%t,   physta%pmid, physta%pdel,    &
@@ -710,7 +708,7 @@ subroutine load_pbuf( pbuf, lchnk, ncol,  &
       ywetdens(:,:,:) = 0.0_r8
       ywetdens(1:ncol,:,:) = wetdens(1:ncol,:,:)
       
-      idx = pbuf_get_index( 'HYGRO' )
+      idx = pbuf_get_index( 'HYGROM' )
       call pbuf_get_field( pbuf, idx, yhygro )
       yhygro(:,:,:) = 0.0_r8
       yhygro(1:ncol,:,:) = hygro(1:ncol,:,:)
@@ -797,7 +795,7 @@ subroutine load_pbuf( pbuf, lchnk, ncol,  &
       call pbuf_get_field( pbuf, idx, ywetdens )
       wetdens(1:ncol,:,:) = ywetdens(1:ncol,:,:)
 
-      idx = pbuf_get_index( 'HYGRO' )
+      idx = pbuf_get_index( 'HYGROM' )
       call pbuf_get_field( pbuf, idx, yhygro )
       hygro(1:ncol,:,:) = yhygro(1:ncol,:,:)
 

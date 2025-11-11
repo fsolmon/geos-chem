@@ -26,11 +26,14 @@ MODULE MAM_UTILS
   integer, parameter :: plon = 1
  
 
+  integer :: mdo_mambox, mdo_gaschem, mdo_cloudchem
+  integer :: mdo_gasaerexch, mdo_rename, mdo_newnuc, mdo_coag
+
   integer :: pcols 
   integer :: pver 
   integer, parameter :: psubcols = 1
   integer  :: plev 
-  
+
   integer, parameter :: begchunk = 1
   integer, parameter :: endchunk = 2
 
@@ -43,7 +46,7 @@ MODULE MAM_UTILS
   
   logical, public :: is_first_step_save = .true.
 
-  integer, public :: l_h2so4g, l_soag
+  integer, public :: l_h2so4g, l_soag, l_hno3g, l_so2g, l_hclg, l_nh3g
 
   integer, parameter, public :: n_ocean_data = 4
 #if (defined MODAL_AERO_9MODE || defined MODAL_AERO_4MODE_MOM)
@@ -80,8 +83,12 @@ MODULE MAM_UTILS
 
   public :: get_spc_ndx
 
+  
+  
 CONTAINS
 
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   subroutine endrun( msg )
     character(len=*), optional, intent(in) :: msg
     integer :: lunout

@@ -11,12 +11,10 @@
    module modal_aero_gasaerexch
 
 ! !USES:
-!  use shr_kind_mod,    only:  r8 => shr_kind_r8
-  use precision_mod, only:  r8 => f8
+  use precision_mod,   only:  r8 => f8
+  use mam_utils,       only:  top_lev => clim_modal_aero_top_lev
   use chem_mods,       only:  gas_pcnst
   use modal_aero_data, only:  maxd_aspectype
-  use mam_utils, only: top_lev => clim_modal_aero_top_lev
-!  use ref_pres,        only:  top_lev => clim_modal_aero_top_lev
 
   implicit none
   private
@@ -89,16 +87,10 @@ subroutine modal_aero_gasaerexch_sub(                            &
 use modal_aero_data
 use modal_aero_rename, only:  modal_aero_rename_sub
 
-!use cam_history,       only:  outfld, fieldname_len
+use mam_utils,         only:  outfld, fieldname_len, pcols, pver, endrun, iam, masterproc, solsym
 use chem_mods,         only:  adv_mass
 use constituents,      only:  pcnst, cnst_name, cnst_get_ind
-use mam_utils , only :  outfld, fieldname_len, pcols, pver,endrun,&
-                        iam, masterproc,solsym
-!use mo_tracname,       only:  solsym
 use physconst,         only:  gravit, mwdry, rair
-!use ppgrid,            only:  pcols, pver
-!use cam_abortutils,        only : endrun
-!use spmd_utils,        only : iam, masterproc
 
 
 implicit none
@@ -870,8 +862,7 @@ subroutine gas_aer_uptkrates( ncol,       loffset,                &
 use modal_aero_data, only:  ntot_amode, ntot_amode,   &
                             numptr_amode,   &
                             sigmag_amode
-
-use mam_utils 
+use mam_utils, only : pcols,pver
 use constituents, only: pcnst, cnst_name
 use physconst, only: mwdry, rair
 
@@ -880,7 +871,7 @@ implicit none
 
    integer,  intent(in) :: ncol                 ! number of atmospheric column
    integer,  intent(in) :: loffset
-   real(r8), intent(in) :: q(ncol,pver,pcnstxx) ! Tracer array (mol,#/mol-air)
+   real(r8), intent(in) :: q(ncol,pver,pcnst) ! Tracer array (mol,#/mol-air)
    real(r8), intent(in) :: t(pcols,pver)        ! Temperature in Kelvin
    real(r8), intent(in) :: pmid(pcols,pver)     ! Air pressure in Pa
    real(r8), intent(in) :: dgncur_awet(pcols,pver,ntot_amode)
@@ -998,8 +989,7 @@ implicit none
           g_soa_tend, a_soa_tend )
 !         g_soa_tend, a_soa_tend, g0_soa, idiagss )
 
-        !use mo_constants, only: rgas ! Gas constant (J/K/mol)
-        use physconst, only :rgas
+        use physconst, only: rgas ! Gas constant (J/K/mol)
 !-----------------------------------------------------------------------
 !
 ! Purpose:
@@ -1089,12 +1079,7 @@ implicit none
 !    as a result, the molar mixing ratios for both gsoa and asoa
 !       are artificially scaled up by (150/12)
 !       and g0_soa must be similarly scaled up
-
-! FAB. In GC context one could eiter modify adv_mass to 12. for SOA, 
-! or comment out the mass correction. Since 150 is also used to characterize SOAP/SOAS in GC
-! I choose to comment out this line ( which is dangerous anyway for MAM protability) 
-!      g0_soa = g0_soa*(150.0_r8/12.0_r8)
-
+      g0_soa = g0_soa*(150.0_r8/12.0_r8)
 !     g0_soa = 0.0   ! force irreversible uptake
 
       niter = 0
@@ -1214,12 +1199,8 @@ timeloop: do while (tcur < dtfull-1.0e-3_r8 )
 use modal_aero_data
 use modal_aero_rename
 
-!use cam_abortutils, only   :    endrun
-!use cam_history, only  :   addfld, horiz_only, add_default, fieldname_len
-use mam_utils, only  :   addfld, horiz_only, add_default, fieldname_len, &
-                         endrun, masterproc
+use mam_utils, only    :    endrun, addfld, horiz_only, add_default, fieldname_len, masterproc
 use constituents, only :  pcnst, cnst_get_ind, cnst_name
-!use spmd_utils, only   :    masterproc
 use phys_control,only  : phys_getopts
 
 

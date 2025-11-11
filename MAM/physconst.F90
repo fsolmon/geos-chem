@@ -50,20 +50,20 @@ module physconst
     
     real(r8), public           :: vmdry        = 20.1_r8     ! molecular diffusion volume of dry air (unitless)    
     real(r8), public, parameter :: mwh2o      = 18.016_r8 
-     real(r8), public, parameter :: rhoh2o      = 1.000E3_r8    
-     real(r8), public           :: tmelt    = 273.15_r8
-     real(r8), public, parameter :: rair        = r_universal/mwdry 
+    real(r8), public, parameter :: rhoh2o      = 1.000E3_r8    
+    real(r8), public           :: tmelt    = 273.15_r8
+    real(r8), public, parameter :: rair        = r_universal/mwdry 
      !   SHR_CONST_BOLTZ   = 1.38065e-23_R8  ! Boltzmann's constant ~ J/K/molecule
 !   real(R8),parameter :: SHR_CONST_AVOGAD  = 6.02214e26_R8   ! Avogadro's number ~ molecules/kmole
 
 !   real(r8), public, parameter :: avogad      = shr_const_avogad     ! Avogadro's number (molecules/kmole)
 !   real(r8), public, parameter :: boltz       = shr_const_boltz      ! Boltzman's constant (J/K/molecule)
 !   real(r8), public, parameter :: cday        = shr_const_cday       ! sec in calendar day ~ sec
-!   real(r8), public, parameter :: cpair       = shr_const_cpdair     ! specific heat of dry air (J/K/kg)
+   real(r8), public, parameter :: cpair       = 1.00464e3_R8     ! specific heat of dry air (J/K/kg)
 !   real(r8), public, parameter :: cpliq       = shr_const_cpfw       ! specific heat of fresh h2o (J/K/kg)
 !   real(r8), public, parameter :: karman      = shr_const_karman     ! Von Karman constant
-!   real(r8), public, parameter :: latice      = shr_const_latice     ! Latent heat of fusion (J/kg)
-!   real(r8), public, parameter :: latvap      = shr_const_latvap     ! Latent heat of vaporization (J/kg)
+   real(r8), public, parameter :: latice      = 3.337e5_R8      ! Latent heat of fusion (J/kg)
+   real(r8), public, parameter :: latvap      = 2.501e6_R8     ! Latent heat of vaporization (J/kg)
 !   real(r8), public, parameter :: pi          = shr_const_pi         ! 3.14...
 !   real(r8), public, parameter :: pstd        = shr_const_pstd       ! Standard pressure (Pascals)
 !   real(r8), public, parameter :: r_universal = shr_const_rgas       ! Universal gas constant (J/K/kmol)
@@ -94,9 +94,9 @@ module physconst
 !   real(r8), public           :: rga          = 1._r8/shr_const_g                 ! reciprocal of gravit
 !   real(r8), public           :: ra           = 1._r8/shr_const_rearth            ! reciprocal of earth radius
 !   real(r8), public           :: omega        = 2.0_R8*shr_const_pi/shr_const_sday! earth rot ~ rad/sec
-!   real(r8), public           :: rh2o         = shr_const_rgas/shr_const_mwwv     ! Water vapor gas constant ~ J/K/kg
+   real(r8), public           :: rh2o         = r_universal/mwh2o     ! Water vapor gas constant ~ J/K/kg
 !   real(r8), public           :: rair         = shr_const_rdair   ! Dry air gas constant     ~ J/K/kg
-!   real(r8), public           :: epsilo       = shr_const_mwwv/shr_const_mwdair   ! ratio of h2o to dry air molecular weights 
+   real(r8), public           :: epsilo       = mwh2o/mwdry   ! ratio of h2o to dry air molecular weights 
 !   real(r8), public           :: zvir         = (shr_const_rwv/shr_const_rdair)-1.0_R8 ! (rh2o/rair) - 1
 !   real(r8), public           :: cpvir        = (shr_const_cpwv/shr_const_cpdair)-1.0_R8 ! CPWV/CPDAIR - 1.0
 !   real(r8), public           :: rhodair      = shr_const_pstd/(shr_const_rdair*shr_const_tkfrz)

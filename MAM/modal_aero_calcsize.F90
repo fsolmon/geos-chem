@@ -2,29 +2,22 @@ module modal_aero_calcsize
 
 !   RCE 07.04.13:  Adapted from MIRAGE2 code
 
-!use shr_kind_mod,     only: r8 => shr_kind_r8
-use precision_mod, only: r8 => f8
-!use spmd_utils,       only: masterproc
+use precision_mod,    only: r8 => f8
+use mam_utils,        only: masterproc, pcols, pver, iulog, endrun, &
+                            addfld, horiz_only, add_default, fieldname_len, outfld, &
+                            top_lev => clim_modal_aero_top_lev
 use physconst,        only: pi, rhoh2o, gravit
 
-!use ppgrid,           only: pcols, pver
 use physics_types,    only: physics_state, physics_ptend
 use physics_buffer,   only: physics_buffer_desc, pbuf_get_index, pbuf_old_tim_idx, pbuf_get_field
 
 use phys_control,     only: phys_getopts
 use rad_constituents, only: rad_cnst_get_info, rad_cnst_get_aer_mmr, rad_cnst_get_aer_props, &
                             rad_cnst_get_mode_props, rad_cnst_get_mode_num
-use mam_utils,        only: masterproc, iulog, endrun,  addfld, horiz_only, add_default, &
-                            fieldname_len, outfld, top_lev => clim_modal_aero_top_lev,&
-                            pcols, pver 
-!use cam_logfile,      only: iulog
-!use cam_abortutils,       only: endrun
-!use cam_history,      only: addfld, horiz_only, add_default, fieldname_len, outfld
+
 use constituents,     only: pcnst, cnst_name
 
-!use ref_pres,         only: top_lev => clim_modal_aero_top_lev
-
-!!FAB#ifdef MODAL_AERO
+#ifdef MODAL_AERO
 
 ! these are the variables needed for the diagnostic calculation of dry radius
 use modal_aero_data, only: ntot_amode, nspec_amode, &
@@ -41,7 +34,7 @@ use modal_aero_data,  only: numptrcw_amode, mprognum_amode, qqcw_get_field, lmas
            lspectype_amode, specmw_amode, specdens_amode, voltonumb_amode, &
            cnst_name_cw
 
-!!#endif
+#endif
 
 
 implicit none
@@ -57,13 +50,13 @@ logical :: do_aitacc_transfer_default
 integer :: dgnum_idx = -1
 
 integer, parameter, public :: maxpair_csizxf = 1
-!!FAB#ifdef MODAL_AERO
+#ifdef MODAL_AERO
 integer, parameter, public :: maxspec_csizxf = ntot_aspectype
-!!#else
+#else
 ! TODO: this is a kludge.  This value should probably be assigned
 ! elsewhere for the non-modal case.  S.M. Burrows.
-!integer, parameter, public :: maxspec_csizxf = 8
-!!#endif
+integer, parameter, public :: maxspec_csizxf = 8
+#endif
 
 integer, public :: npair_csizxf = -123456789
 integer, public :: modefrm_csizxf(maxpair_csizxf)
@@ -96,8 +89,8 @@ end subroutine modal_aero_calcsize_reg
 
 subroutine modal_aero_calcsize_init( pbuf2d, species_class)
 !   use time_manager,  only: is_first_step
-use mam_utils, only : is_first_step
-use physics_buffer,only: pbuf_set_field
+   use mam_utils, only : is_first_step
+   use physics_buffer,only: pbuf_set_field
 
    !-----------------------------------------------------------------------
    !
@@ -141,11 +134,11 @@ use physics_buffer,only: pbuf_set_field
    modefrm_csizxf(1) = 0
    modetoo_csizxf(1) = 0
 
-!!FAB#ifndef MODAL_AERO
-!   do_adjust_default          = .false.
-!   do_aitacc_transfer_default = .false.
+#ifndef MODAL_AERO
+   do_adjust_default          = .false.
+   do_aitacc_transfer_default = .false.
 
-!#else
+#else
    !  do_adjust_default allows adjustment to be turned on/off
    do_adjust_default = .true.
 
@@ -466,7 +459,7 @@ do_aitacc_transfer_if_block2: &
       end if
    if ( masterproc ) write(iulog,'(a)') 'modal_aero_calcsize_init ALL DONE'
 
-!!FAB#endif
+#endif
 
 end subroutine modal_aero_calcsize_init
 
@@ -499,7 +492,7 @@ subroutine modal_aero_calcsize_sub(state, ptend, deltat, pbuf, do_adjust_in, &
    logical, optional :: do_adjust_in
    logical, optional :: do_aitacc_transfer_in
 
-!!FAB#ifdef MODAL_AERO
+#ifdef MODAL_AERO
 
    ! local
 
@@ -1386,7 +1379,7 @@ subroutine modal_aero_calcsize_sub(state, ptend, deltat, pbuf, do_adjust_in, &
       end do   ! jac = ...
    end do   ! iq = ...
 
-!!FAB #endif
+#endif
 
 end subroutine modal_aero_calcsize_sub
  

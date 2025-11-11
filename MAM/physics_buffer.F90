@@ -22,14 +22,9 @@ module physics_buffer
   ! 
   !-----------------------------------------------------------------------
 
-  use precision_mod,   only: r8 => f8, r4=> f4
-  !!, i4=> shr_kind_i4
-  use mam_utils, only: i4, pcols, begchunk, endchunk, psubcols, iulog, ptimelevels, endrun
-!FAB  use ppgrid,         only: pcols, begchunk, endchunk, psubcols
-!  use cam_logfile,    only: iulog
+  use precision_mod,  only: r8 => f8, r4 => f4 
+  use mam_utils,      only:i4, pcols, begchunk, endchunk, psubcols, iulog, ptimelevels, endrun
 !!use pio,            only: var_desc_t
-!  use dyn_grid,       only: ptimelevels
-!  use cam_abortutils, only: endrun
   use buffer,         only: buffer_field_allocate, buffer_field_deallocate, buffer_get_field_ptr, buffer_set_field, &
                             dtype_i4, dtype_r4, dtype_r8, buffer_field_default_type, buffer_field_is_alloc
 

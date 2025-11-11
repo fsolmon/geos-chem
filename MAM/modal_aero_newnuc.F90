@@ -11,13 +11,10 @@
 !FAB#if (defined MODAL_AERO)
 
 ! !USES:
-!   use shr_kind_mod,  only:  r8 => shr_kind_r8
-!   use shr_kind_mod,  only:  r4 => shr_kind_r4
-!   use cam_logfile,   only:  iulog
-   USE PRECISION_MOD, only: r8=>f8 , r4=>f4,  fp, f8
-! 
-!FAB  use diretly physconst use mo_constants,  only:  pi
-   use physconst,     only:  pi
+   use precision_mod, only:  r8 => f8
+   use precision_mod, only:  r4 => f4
+   use mam_utils,     only:  iulog
+   use physconst,  only:  pi
    use chem_mods,     only:  gas_pcnst
 
   implicit none
@@ -86,17 +83,13 @@
 
 ! !USES:
    use modal_aero_data
-!   use abortutils, only: endrun
-!FAB   use cam_history,    only: outfld, fieldname_len
-   use mam_utils, only :endrun, outfld, fieldname_len,pcols, pver,iam, masterproc, iulog, \
-                        top_lev=>clim_modal_aero_top_lev
+   use mam_utils,      only: endrun, outfld, fieldname_len, pcols, pver, iam, masterproc, &
+                             top_lev => clim_modal_aero_top_lev
    use chem_mods,      only: adv_mass
    use constituents,   only: pcnst, cnst_name
    use physconst,      only: gravit, mwdry, r_universal
-!FAB   use ppgrid,         only: pcols, pver
-!FAB   use spmd_utils,     only: iam, masterproc
-   use wv_saturation,  only: qsat !! FAB pass directly GC rh consider  ? 
-!FAB   use ref_pres,       only: top_lev=>clim_modal_aero_top_lev
+   use wv_saturation,  only: qsat
+
    implicit none
 
 ! !PARAMETERS:
@@ -112,7 +105,6 @@
    real(r8), intent(in) :: zm(pcols,pver)   ! midpoint height above surface (m)
    real(r8), intent(in) :: pblh(pcols)      ! pbl height (m)
    real(r8), intent(in) :: qv(pcols,pver)   ! specific humidity (kg/kg)
-!   real(r8), intent(in) :: rh(pcols,pver)   ! grid level relative hunidity (fraction)FAB consider using directly rh? 
    real(r8), intent(in) :: cld(ncol,pver)   ! stratiform cloud fraction
                                             ! *** NOTE ncol dimension
    real(r8), intent(inout) :: q(ncol,pver,pcnstxx) 
@@ -343,10 +335,8 @@ main_i:	do i = 1, ncol
 	qvswtr = qv_sat(i,k)
 	qvswtr = max( qvswtr, 1.0e-20_r8 )
 	relhumav = qv(i,k) / qvswtr
-	!FAB use directly rh from GC 
-        !relhumav = rh(i,k)
-        relhumav = max( 0.0_r8, min( 1.0_r8, relhumav ) )
-        !   relhum = non-cloudy area RH (note that 1-cldx >= .01)
+	relhumav = max( 0.0_r8, min( 1.0_r8, relhumav ) )
+!   relhum = non-cloudy area RH (note that 1-cldx >= .01)
 	cldx = max( 0.0_r8, cld(i,k) )
 	relhum = (relhumav - cldx) / (1.0_r8 - cldx)
 	relhum = max( 0.0_r8, min( 1.0_r8, relhum ) )
@@ -612,13 +602,10 @@ main_i:	do i = 1, ncol
            qh2so4_del, qnh3_del, dens_nh4so4a, ldiagaa,   &
            dnclusterdt )
 
-!FAB          use mo_constants, only: rgas, &               ! Gas constant (J/K/kmol)
-!                                  avogad => avogadro    ! Avogadro's number (1/kmol)
-
-           use physconst,    only: mw_so4a => mwso4, &   ! Molecular weight of sulfate
-                                  mw_nh4a => mwnh4,  &    ! Molecular weight of ammonium
-                                  rgas,              &    ! Gas constant (J/K/kmol)
-                                  avogad => avogadro     ! Avogadro's number (1/kmol)
+          use physconst, only: rgas, &               ! Gas constant (J/K/kmol)
+                                  avogad => avogadro    ! Avogadro's number (1/kmol)
+          use physconst,    only: mw_so4a => mwso4, &   ! Molecular weight of sulfate
+                                  mw_nh4a => mwnh4      ! Molecular weight of ammonium
 !.......................................................................
 !
 ! calculates new particle production from homogeneous nucleation
@@ -1477,12 +1464,10 @@ subroutine modal_aero_newnuc_init( mam_amicphys_optaa )
 use modal_aero_data
 use modal_aero_rename
 
-!FABuse abortutils,   only:  endrun
-!use cam_history,  only:  addfld, horiz_only, add_default, fieldname_len
+use mam_utils,    only:  endrun, addfld, horiz_only, add_default, fieldname_len, masterproc
 use constituents, only:  pcnst, cnst_get_ind, cnst_name
-!use spmd_utils,   only:  masterproc
 use phys_control, only: phys_getopts
-use mam_utils, only: endrun, addfld, horiz_only, add_default, fieldname_len, masterproc, iulog 
+
 
 implicit none
 

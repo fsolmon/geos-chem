@@ -10,10 +10,8 @@
   module modal_aero_rename
 
 ! !USES:
-  use precision_mod,    only: r8 =>f8 
-
-!  use abortutils,      only: endrun
-  use mam_utils,        only:endrun
+  use precision_mod,   only: r8 => f8
+  use mam_utils,       only: endrun
   use modal_aero_data, only: maxd_aspectype
   use chem_mods,       only: gas_pcnst
 
@@ -73,14 +71,12 @@
 
 ! !USES:
    use modal_aero_data
-   use mam_utils, only: pcols, pver
-!FAB   use ppgrid, only:  pcols, pver
+
    use constituents, only: pcnst, cnst_name
-!FAB   use mo_constants,  only:  pi
-   use physconst, only: gravit, mwdry,pi
-!FAB   use units, only: getunit
-!FAB    use shr_spfn_mod, only: erfc => shr_spfn_erfc
-! here check out that erfc is intrinsic , be aware of potential problems
+   use physconst, only: pi, gravit, mwdry
+   use mam_utils, only: getunit,pcols,pver
+   use error_function, only: erfc 
+
    implicit none
 
 
@@ -188,11 +184,11 @@
 
 !   get logical unit (for output to dumpconv, deactivate the "lun = 6")
  	lun = 6
-!FAB	if (lun < 1) then
-!	   lun = getunit()
-! 	   open( unit=lun, file='dump.rename',   &
-! 			status='unknown', form='formatted' )
-!	end if
+	if (lun < 1) then
+	   lun = getunit()
+ 	   open( unit=lun, file='dump.rename',   &
+ 			status='unknown', form='formatted' )
+	end if
 
 
 !
@@ -503,8 +499,8 @@ mainloop1_ipair:  do ipair = 1, npair_renamexf
 !
 	use modal_aero_data
 	use constituents, only: pcnst, cnst_name
-	!FABuse spmd_utils,   only: masterproc
-        use mam_utils, only: masterproc
+	use mam_utils,    only: masterproc
+
 	implicit none
 
 !   local variables

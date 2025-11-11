@@ -15,11 +15,8 @@ module buffer
   ! 
   !-----------------------------------------------------------------------
 
-  use precision_mod, only: r8 => f8, r4=> f4
-  !!, i4=> shr_kind_i4
-!  use cam_logfile,  only: iulog
-!  use cam_abortutils,   only: endrun
-  use mam_utils, only:i4, iulog, endrun
+  use precision_mod, only: r8 => f8, r4 => f4
+  use mam_utils,     only:i4, iulog, endrun
   implicit none
   private
   ! The maximum number of dims in a fortran array

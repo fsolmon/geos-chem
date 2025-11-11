@@ -8,20 +8,25 @@
 
       module constituents
 
-!      use abortutils, only:  endrun
-!      use cam_logfile, only:  iulog
-!      use mam_utils, only :endrun, iulog
+!      use mam_utils, only:  endrun, iulog
+
       implicit none
 
       public
+!FAB integer, parameter :: pcnst = PCNST 
+!Initially PCNST is provided as a precompiling key. 
+!Here add precompiling hard-coded options for limiting errorsin dimensioning 
+!mam arrays (no dynamical allocations) 
+!Now only retains the options considered for Geos-Chem.
+!A consistency test has also been added in modal_aero_initialize (inspired from box model).  
 
-!FAB      integer, parameter :: pcnst = PCNST 
-! Depend de quel MAM , pour MAM4 sans MOM 
-! a faire : fixe pcnst en fonction de option ( plutot que le test dumb ) 
-!declare toute les variables dependant de pcnst en allocation dynamique et alloue apres choix option
-      integer, parameter :: pcnst = 28 
+#if ( ( defined MODAL_AERO_4MODE_MOM ) && ( defined RAIN_EVAP_TO_COARSE_AERO ) && ( defined MOSAIC_SPECIES ) )
+      integer, parameter :: pcnst = 54 
+#elif ( defined MODAL_AERO_4MODE )
+      integer, parameter :: pcnst = 28
+#endif
       character(len=16) :: cnst_name(pcnst)     ! constituent names
-      integer           :: species_class(pcnst) 
+      integer           :: species_class(pcnst)
       contains
 
 !==============================================================================
@@ -59,8 +64,6 @@
     if ( abort_on_error ) then
        write(*,*) 'CNST_GET_IND, name:', name, &
                       ' not found in list:', cnst_name(:)
-       stop
-              !       call endrun('CNST_GET_IND: name not found')
     end if
 
 ! error return

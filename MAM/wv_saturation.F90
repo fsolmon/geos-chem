@@ -13,12 +13,8 @@
 ! $Id$
 !
 module wv_saturation
-!  use shr_kind_mod, only: r8 => shr_kind_r8
   use precision_mod, only: r8 => f8
-  use mam_utils, only:endrun, iulog, pver, pcols
-!  use abortutils,   only: endrun
-!  use cam_logfile,  only: iulog
-!  use ppgrid,       only: pver
+  use mam_utils,     only: endrun, iulog, pver,pcols
 
   implicit none
   private
@@ -51,7 +47,7 @@ module wv_saturation
 !
 ! Data
 !
-!FAB use pver directly  integer, public :: ncol_for_qsat = pver
+!FAB  integer, public :: ncol_for_qsat = pver
 
   integer plenest  ! length of saturation vapor pressure table
   parameter (plenest=250)
@@ -1379,19 +1375,11 @@ subroutine  qsat(t       ,p       ,es      ,qs        )
 !ubroutine aqsat(t       ,p       ,es      ,qs        ,ii      , &
 !                ilen             ,kk      ,kstart  ,kend      )
    call    aqsat(t       ,p       ,es      ,qs      ,pcols, &
-                  pcols   ,pver    ,1       ,pver      )
+                 pcols   ,pver    ,1       ,pver      )
    return
 end subroutine qsat
 
-
-! gffgch.F90
-!    This F90 module file is a special version of the equivalent ACME (and CAM5) module.
-!    It provides the functionality needed by the cambox offline code
-!    that is used for development and testing of the modal aerosol module (MAM),
-!    but (in most cases) not all the functionality of the equivalent ACME module.
-!    Also, it may have been taken from a version of CAM5 that was older
-!    than ACME-V0 (i.e., pre 2014).
-
+! FAB put gffgch in the module
 subroutine gffgch(t       ,es      ,itype   )
 !----------------------------------------------------------------------- 
 ! 
@@ -1421,7 +1409,7 @@ subroutine gffgch(t       ,es      ,itype   )
    use precision_mod,  only: r8 => f8
    use physconst,    only: tmelt
    use mam_utils,  only : endrun , iulog
-    
+
    implicit none
 !------------------------------Arguments--------------------------------
 !

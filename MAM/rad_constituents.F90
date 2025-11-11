@@ -15,11 +15,9 @@
 !    modal_aero_wateruptake.F90
 !
 
-      use precision_mod,   only: r8 => f8
+      use precision_mod,  only: r8 => f8
 
-!      use abortutils,     only: endrun
-!      use cam_logfile,    only: iulog
-      use mam_utils, only: endrun, iulog
+      use mam_utils,      only: endrun, iulog
       use radconstants,   only: nlwbands, nswbands
       use physics_types,  only: physics_state, physics_ptend
       use physics_buffer, only: physics_buffer_desc
@@ -41,9 +39,10 @@
          module procedure rad_cnst_get_info_v1
          module procedure rad_cnst_get_info_v2
          module procedure rad_cnst_get_info_v3
-      end interface
+         module procedure rad_cnst_get_info_v4
+       end interface
 
-# if ( defined MOSAIC_SPECIES ) 
+# if ( defined MOSAIC_SPECIES_FABNO ) 
       integer, parameter :: nspecs=11
 
       integer :: mode_idx_rc(nspecs) = &
@@ -75,7 +74,7 @@
                      1.160_r8, 0.068_r8, 1.160_r8,   & 
                      0.068_r8, 0.068_r8              /)
 
-#elif ( defined MODAL_AERO_4MODE_MOM )
+#elif ( defined MODAL_AERO_4MODE_MOM_FABNO )
       integer, parameter :: nspecs=9
 
       integer :: mode_idx_rc(nspecs) = &
@@ -101,7 +100,39 @@
       real(r8) :: spechygro_rc(nspecs) = &
                   (/ 0.507_r8, 0.507_r8, 0.507_r8,   &
                      0.010_r8, 0.140_r8, 1.0e-10_r8, &
-                     1.160_r8, 0.068_r8, 0.100_r8    /)
+                     1.160_r8, 0.068_r8, 0.100_r8    /
+
+#elif ( ( defined MODAL_AERO_4MODE_MOM ) && ( defined MOSAIC_SPECIES ) )
+      integer, parameter :: nspecs=12
+                  
+      integer :: mode_idx_rc(nspecs) = &
+                 (/ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 /)
+      integer :: spec_idx_rc(nspecs) = &
+                 (/ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 /)
+      character(len=16) :: specname_amode_rc(nspecs) = &
+                          (/  'sulfate         ', &
+                              'ammonium        ', &
+                              'nitrate         ', &
+                              'p-organic       ', &
+                              's-organic       ', &
+                              'black-c         ', &
+                              'seasalt         ', &
+                              'dust            ', &
+                              'chloride        ', &
+                              'calcium         ', &
+                              'carbonate       ', &
+                              'm-organic       '  /)
+
+      real(r8) :: specdens_amode_rc(nspecs) = &
+                  (/ 1770.0_r8, 1770.0_r8, 1770.0_r8, &
+                     1000.0_r8, 1000.0_r8, 1700.0_r8, &
+                     1900.0_r8, 2600.0_r8, 1900.0_r8, &
+                     2600.0_r8, 2600.0_r8, 1601.0_r8   /)
+      real(r8) :: spechygro_rc(nspecs) = &
+                  (/ 0.507_r8, 0.507_r8, 0.507_r8,   &
+                     0.010_r8, 0.140_r8, 1.0e-10_r8, &
+                     1.160_r8, 0.068_r8, 1.160_r8,   &
+                     0.068_r8, 0.068_r8, 0.100_r8    /)
 
 #else
       integer, parameter :: nspecs=8
@@ -310,7 +341,28 @@ m_loop: do m = 1, ntot_amode
 
       return
       end subroutine rad_cnst_get_info_v3
+!-----------------------------------------------------------------
+!FAB
+      subroutine rad_cnst_get_info_v4( itmpa, m_idx, s_idx, spec_type)
 
+      integer :: itmpa
+      integer :: m_idx
+      integer :: s_idx
+      character(len=32) :: spec_type  
+
+      integer :: itmpl, l2, l3
+      character(len=120) :: errmsg
+
+      itmpl = 0
+      l2 = lspectype_amode(s_idx,m_idx)
+      do l3 = 1, nspecs !just check consistency
+         if (specname_amode(l2) == specname_amode_rc(l3)) then
+            spec_type = specname_amode(l2)
+            exit
+         end if
+      end do
+      return
+      end subroutine rad_cnst_get_info_v4
 
 !-------------------------------------------------------------------------------
 !-------------------------------------------------------------------------------
@@ -431,8 +483,7 @@ m_loop: do m = 1, ntot_amode
 ! Return pointer to mass mixing ratio for the modal aerosol specie from the specified
 ! climate or diagnostic list.
 
-!      use ppgrid, only: pver
-      use mam_utils, only :pver
+      use mam_utils, only: pver
       use constituents, only: pcnst
       use modal_aero_data, only:  lmassptr_amode, nspec_amode
 

@@ -2372,7 +2372,7 @@ CONTAINS
     USE APM_DRIV_MOD,         ONLY : PSO4GAS
     USE APM_DRIV_MOD,         ONLY : XO3
 #endif
-#ifdef MODAL_AERO_4MODE 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM) 
     USE MAM_DRIV_MOD,         ONLY : PSO4_SO2MAM  
 #endif
 !
@@ -4116,7 +4116,7 @@ CONTAINS
 #ifdef TOMAS
        PSO4_SO2AQ(I,J,L) = L2S + L3S + SR ! For TOMAS microphysics
 #endif
-#ifdef MODAL_AERO_4MODE
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
 !FAB perhap update for other prod L6-8 ??
        PSO4_SO2MAM(I,J,L) = L2S + L3S + L4S + L5S + SR
 #endif 

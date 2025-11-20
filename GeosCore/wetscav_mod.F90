@@ -888,7 +888,7 @@ CONTAINS
        ENDDO
        ENDDO
 #endif
-#ifdef MODAL_AERO_4MODE
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
     ! FAB interstitial state is scavenged by convective clouds
     ! cloud-borne state is supposed to be tied to stratiform (LS) 
     ! cloud only. Since aerosols aere internally mixed in a given mode 
@@ -933,7 +933,7 @@ CONTAINS
        ENDDO
        ENDDO
 #endif
-#ifdef MODAL_AERO_4MODE
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
     ! FAB apply also for number concentrations  SpcInfo%MP_SizeResNum   
        IF(SpcInfo%MamModId > 0 ) THEN !.and. .not.SpcInfo%Is_CloudBorne) THEN
           CALL F_AEROSOL( KC, KcScale, Input_Opt, State_Grid, State_Met, F )
@@ -1240,7 +1240,7 @@ CONTAINS
     USE Species_Mod,   ONLY : Species
     USE State_Chm_Mod, ONLY : ChmState
     USE State_Met_Mod, ONLY : MetState
-#ifdef MODAL_AERO_4MODE
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
     USE MAM_DRIV_MOD, ONLY : MAM_APPLY_RAINOUT_EFF
 #endif
 !
@@ -1468,7 +1468,7 @@ CONTAINS
        ! Apply temperature-dependent rainout efficiencies
        ! This accounts for impaction scavenging of certain aerosols
 !FAB
-#ifdef MODAL_AERO_4MODE 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM) 
        if (SpcInfo%MamModId > 0 ) then !    
          CALL MAM_APPLY_RAINOUT_EFF(State_Chm%GCMAM(SpcInfo%MamModId)%hygro(I,J,L), &
                                      p_T, SpcInfo, RAINFRAC )
@@ -1711,7 +1711,7 @@ CONTAINS
     ! Scalars
     REAL(fp)               :: L2G, DZ, SO2LOSS
     REAL(f8)               :: K0,  CR, pKa
-#if defined(APM) || defined (MODAL_AERO_4MODE)
+#if defined(APM) || defined (MODAL_AERO_4MODE) || defined (MODAL_AERO_4MODE_MOM)
     REAL(fp)               :: RIN
 #endif
 #ifdef LUO_WETDEP
@@ -1937,7 +1937,7 @@ CONTAINS
        CALL WASHFRAC_APMSIZE_AEROSOL(RIN, DT, F, PP, TK, WASHFRAC)
 #endif
 !FAB 
-#ifdef MODAL_AERO_4MODE
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
        ! wahout only applies to MAM species and intersticial state
        IF(SpcInfo%MamModId > 0 )THEN !FAB pb .and. .not.SpcInfo%Is_CloudBorne) THEN                
            KIN = .TRUE.
@@ -2692,7 +2692,7 @@ CONTAINS
     ENDIF
 
   END FUNCTION WASHFRAC_HNO3
-#if defined(APM) || defined (MODAL_AERO_4MODE) 
+#if defined(APM) || defined (MODAL_AERO_4MODE) || defined (MODAL_AERO_4MODE_MOM)
 !FAB
 !------------------------------------------------------------------------------
 !                  GEOS-Chem Global Chemical Transport Model                  !
@@ -4139,7 +4139,7 @@ CONTAINS
        ! Get the species ID from the wetdep ID
        N = State_Chm%Map_WetDep(NW)
 
-#ifdef MODAL_AERO_4MODE
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
 !FAB rainout applies only to MAM and cloud borne-state species 
 !cycle if not
        IF (State_Chm%SpcData(N)%Info%MamModId > 0 .and.                   &
@@ -4639,7 +4639,7 @@ CONTAINS
              State_Chm%PSO4_SO2APM2(I,J,L) =                                 &
              State_Chm%PSO4_SO2APM2(I,J,L) + GAINED * 96e+0_fp / 64e+0_fp
 #endif
-#ifdef MODAL_AERO_4MODE
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
 ! FAB assume that SO4 is released in the accumulation mode                          
              Spc(Ind_('MAMSO41'))%Conc(I,J,L) =                                 &
              Spc(Ind_('MAMSO41'))%Conc(I,J,L) + GAINED * 96e+0_fp / 64e+0_fp

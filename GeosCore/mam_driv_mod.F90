@@ -19,7 +19,7 @@ MODULE MAM_DRIV_MOD
 use precision_mod, only :r8 => f8, fp, f8  
 use physics_buffer, only: physics_buffer_desc
 use physics_types, only : physics_state, physics_ptend
-use mam_utils, only : masterproc, pcols, pver, l_h2so4g, l_soag
+use mam_utils, only : masterproc, pcols, pver, l_h2so4g, l_soag, l_hno3g, l_hclg, l_nh3g
 use constituents, only : pcnst
 
 !
@@ -122,6 +122,9 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
                                lptr_bc_a_amode, lptr_nacl_a_amode,&
                                lptr_pom_a_amode, lptr_soa_a_amode,&
                                lptr_dust_a_amode, lptr_so4_cw_amode,&
+                               lptr_nh4_a_amode,lptr_no3_a_amode,&
+                               lptr_ca_a_amode,lptr_cl_a_amode,&
+                               lptr_co3_a_amode,&
                                modeptr_accum, alnsg_amode, voltonumb_amode
     use modal_aero_initialize_data, only: MAM_cold_start 
     use modal_aero_calcsize, only: modal_aero_calcsize_sub
@@ -220,10 +223,11 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       physta%q(n,l,l_h2so4g) = Spc(Ind_('H2SO4'))%Conc(I,J,L) / State_Met%AD(I,J,L)
       physta%q(n,l,l_soag) = Spc(Ind_('SOAP'))%Conc(I,J,L) / State_Met%AD(I,J,L) 
       ! Rq in GC standard lumped SOAP is not treated as semi_volatil but in MAM yes
-      ! is this reqsonqble ? 
-      ! develop options with advanced SOA scheme  
-      ! other gas might be considered if MAM7 and/or MOSAIC are implemented
-
+      ! is this reqsonqble ? also develop options with advanced SOA scheme  
+      !
+      if(l_nh3g > 0) physta%q(n,l,l_nh3g) = Spc(Ind_('NH3'))%Conc(I,J,L) / State_Met%AD(I,J,L)
+      if(l_hno3g > 0) physta%q(n,l,l_hno3g) = Spc(Ind_('HNO3'))%Conc(I,J,L) / State_Met%AD(I,J,L)
+      if(l_hclg > 0) physta%q(n,l,l_hclg) = Spc(Ind_('HCL'))%Conc(I,J,L) / State_Met%AD(I,J,L)
      END DO
      END DO
      END DO
@@ -239,7 +243,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
 
        if(.not. is_cbsim) then !cloud borne state is not considered    
          do s = 1 , nmamgc
-           physta%q(n,l,mamgc(s)%mamind) = Spc(mamgc(s)%gcind)%Conc(I,J,L)/State_Met%AD(I,J,L) 
+          physta%q(n,l,mamgc(s)%mamind) = Spc(mamgc(s)%gcind)%Conc(I,J,L)/State_Met%AD(I,J,L) 
          end do
        else !cloud born and interstitial states are considered       
          do s = 1 , nmamgc
@@ -280,8 +284,6 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     END DO
     END DO
     endif         
-
-
 
 ! CALCSIZE INTERFACE     
      
@@ -393,8 +395,7 @@ call load_pbuf( pbuf, lchnk, pcols, &
          physta%q(    1:pcols,1:pver,l)  = vmr(  1:pcols,1:pver,l2) * adv_mass(l2)/mwdry 
          physta%qqcw( 1:pcols,1:pver,l)  = vmrcw(1:pcols,1:pver,l2) * adv_mass(l2)/mwdry
       end do
-
-      
+     
 ! Update GC/MAM species 
      DO L = 1, State_Grid%NZ
      DO J = 1, State_Grid%NY
@@ -424,20 +425,26 @@ call load_pbuf( pbuf, lchnk, pcols, &
         Spc(Ind_('H2SO4'))%Conc(I,J,L) = physta%q(n,l,l_h2so4g) &
                                        * State_Met%AD(I,J,L)
 
+        if(l_nh3g > 0) Spc(Ind_('NH3'))%Conc(I,J,L) = physta%q(n,l,l_nh3g) &
+                                       * State_Met%AD(I,J,L)
+
+        if(l_hno3g > 0) Spc(Ind_('HNO3'))%Conc(I,J,L) = physta%q(n,l,l_hno3g) &
+                                       * State_Met%AD(I,J,L)
+
+        if(l_hclg > 0) Spc(Ind_('HCL'))%Conc(I,J,L) = physta%q(n,l,l_hclg) &
+                                       * State_Met%AD(I,J,L)                       
       ENDDO
       ENDDO
       ENDDO  
-                               
 ! fill state GCMAM chem state variables,  used in e.g. drydep  nd diags 
 ! harmonize mamgc and GCMAM 
-! claude AI suggest to keep m loop inside l,j,i loop as long as m is small (which is the case)
 ! try to optimize the if statements within loops
 
+if(1==1) THEN
       DO L = 1, State_Grid%NZ
       DO J = 1, State_Grid%NY
       DO I = 1, State_Grid%NX
         n = J + (I-1)*State_Grid%NY
-
 
       do m= 1, size(State_Chm%GCMAM) ! loop on modes     
 
@@ -478,7 +485,7 @@ call load_pbuf( pbuf, lchnk, pcols, &
  
         if(lptr_soa_a_amode(m) > 0 ) State_Chm%GCMAM(m)%soa(I,J,L) =              &
                                 physta%q(n,L,lptr_soa_a_amode(m))*State_Met%AIRDEN(I,J,L)
-  
+        
         if(lptr_nacl_a_amode(m) > 0 ) State_Chm%GCMAM(m)%sslt(I,J,L) =              &
                                 physta%q(n,L,lptr_nacl_a_amode(m))*State_Met%AIRDEN(I,J,L)
 
@@ -487,11 +494,10 @@ call load_pbuf( pbuf, lchnk, pcols, &
  
 
       end do 
-
      ENDDO
      ENDDO
      ENDDO
-          
+END IF
      ! call MAM aerosol update for gravitational settling (this call could be somewhere else )        
      call  MAM_SETTL( Input_Opt,  State_Chm, State_Diag, &
                           State_Grid, State_Met, RC )
@@ -512,8 +518,6 @@ call load_pbuf( pbuf, lchnk, pcols, &
 
 SUBROUTINE MAM_INIT( Input_Opt, State_Chm,  State_Diag, State_Grid, RC )
 
-       
- 
     USE Input_Opt_Mod,  ONLY : OptInput
     USE Species_Mod,    ONLY : SpcConc
     USE State_Chm_Mod,  ONLY : ChmState
@@ -523,13 +527,17 @@ SUBROUTINE MAM_INIT( Input_Opt, State_Chm,  State_Diag, State_Grid, RC )
 
     USE TIME_MOD,     ONLY : GET_TS_CHEM
 
-    use mam_utils, ONLY : plev, ncol_for_outfld  
+    use mam_utils, ONLY :endrun, plev, ncol_for_outfld  
     use physics_buffer, only: physics_buffer_desc 
     use physics_types, only : physics_state
     use modal_aero_data, only: numptr_amode, lptr_so4_a_amode, &
                                lptr_bc_a_amode, lptr_nacl_a_amode,&
                                lptr_pom_a_amode, lptr_soa_a_amode,&
-                               lptr_dust_a_amode
+                               lptr_dust_a_amode, lptr_nh4_a_amode,&
+                               lptr_no3_a_amode,lptr_ca_a_amode,&
+                               lptr_cl_a_amode,lptr_co3_a_amode,&
+                               lptr_mom_a_amode 
+
     use modal_aero_initialize_data, only: MAM_init_basics, MAM_ALLOCATE
 
     ! !INPUT PARAMETERS:
@@ -622,6 +630,19 @@ do i = 1, State_Chm%nMam
  if (mamgc(i)%name(s:s+2) == 'SOA') mamgc(i)%mamind = lptr_soa_a_amode(mamgc(i)%modId)
  if (mamgc(i)%name(s:s+3) == 'SSLT') mamgc(i)%mamind = lptr_nacl_a_amode(mamgc(i)%modId)
  if (mamgc(i)%name(s:s+3) == 'DUST') mamgc(i)%mamind = lptr_dust_a_amode(mamgc(i)%modId)
+! MOSAIC species / consider NH4 for default 
+#if ( ( defined MODAL_AERO_4MODE_MOM ) && ( defined MOSAIC_SPECIES ) )
+if (mamgc(i)%name(s:s+2) == 'NH4') mamgc(i)%mamind = lptr_nh4_a_amode(mamgc(i)%modId)
+if (mamgc(i)%name(s:s+2) == 'NO3') mamgc(i)%mamind = lptr_no3_a_amode(mamgc(i)%modId)
+if (mamgc(i)%name(s:s+2) == 'MOM') mamgc(i)%mamind = lptr_mom_a_amode(mamgc(i)%modId)
+if (mamgc(i)%name(s:s+1) == 'CA') mamgc(i)%mamind = lptr_ca_a_amode(mamgc(i)%modId)
+if (mamgc(i)%name(s:s+1) == 'CL') mamgc(i)%mamind = lptr_cl_a_amode(mamgc(i)%modId)
+if (mamgc(i)%name(s:s+2) == 'CO3') mamgc(i)%mamind = lptr_co3_a_amode(mamgc(i)%modId)
+#endif
+ 
+if  (masterproc .and. mamgc(i)%mamind < 0._r8 ) then 
+        call endrun('Stoping in MAM_INIT, GC species not consistent with MAM species, check species_database.yml') 
+end if          
 ! to be updated when adding species to MAM
 end do
 

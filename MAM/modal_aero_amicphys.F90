@@ -1838,7 +1838,6 @@ do_cond_if_block10: &
       qaer_sv1 = qaer_cur
 
 #if ( defined MOSAIC_SPECIES )
-    print*, 'FAB je passe dans MOSAIC_SPECIES', mosaic
     if ( mosaic ) then
          tmp_relhum = min( relhum, 0.98_r8 )
          call mosaic_gasaerexch_1subarea_intr(     nstep,                &!Intent(ins)
@@ -2277,7 +2276,6 @@ do_cond_if_block10: &
       qaer_sv1 = qaer_cur
 
 #if ( defined MOSAIC_SPECIES )
-      print*, 'je passe dans mosaic ' , mosaic
       if ( mosaic ) then
          call mosaic_gasaerexch_1subarea_intr(     nstep,                &!Intent(ins)
               lchnk,             i,                k,           jsub,    &
@@ -3156,7 +3154,6 @@ do_newnuc_if_block50: &
         !END [Process MOSAIC output ....]
         !------------------------------------------------------------!
         !------------------------------------------------------------!
-      print*, 'FAB end mosaic_gasaerexch_1subarea_intr' 
       
       end subroutine mosaic_gasaerexch_1subarea_intr
 #endif

@@ -85,16 +85,18 @@
        12.0_r8,   12.0_r8,   12.0_r8,  58.5_r8, 135.0_r8, &
        250092.0_r8, 66528.0_r8,  284.0_r8 /)
 #elif ( ( defined MODAL_AERO_4MODE_MOM ) && ( defined MOSAIC_SPECIES ) )
-    real(r8), parameter :: specmw_amode(ntot_aspectype)   = (/  96.0_r8,  18.0_r8,  62.0_r8, &
-       12.0_r8,   12.0_r8,   12.0_r8,  23.0_r8, 135.0_r8, &
+!FAB make specmw consistent with GC for SOAS 
+       real(r8), parameter :: specmw_amode(ntot_aspectype)   = (/  96.0_r8,  18.0_r8,  62.0_r8, &
+       12.0_r8,   150.0_r8,   12.0_r8,  23.0_r8, 135.0_r8, &
        250092.0_r8,  40.0_r8, 60.0_r8, 35.5_r8 /)
 #elif ( defined MODAL_AERO_4MODE_MOM )
     real(r8), parameter :: specmw_amode(ntot_aspectype)   = (/ 115.0_r8, 115.0_r8,  62.0_r8, &
        12.0_r8,   12.0_r8,   12.0_r8,  58.5_r8, 135.0_r8, &
        250092.0_r8 /)
 #elif ( defined MODAL_AERO_4MODE )
-    real(r8), parameter :: specmw_amode(ntot_aspectype)   = (/ 115.0_r8, 115.0_r8,  62.0_r8, &
-       12.0_r8,   12.0_r8,   12.0_r8,  58.5_r8, 135.0_r8 /)
+!!FAB clarify the masse for sulfate/ammonia in the GC context for MODAL_AERO_4MODE
+real(r8), parameter :: specmw_amode(ntot_aspectype)   = (/ 115.0_r8, 115.0_r8,  62.0_r8, &
+       12.0_r8,   150.0_r8,   12.0_r8,  58.5_r8, 135.0_r8 /)
 #elif ( defined MODAL_AERO_3MODE )
     real(r8), parameter :: specmw_amode(ntot_aspectype)   = (/ 115.0_r8, 115.0_r8,  62.0_r8, &
        12.0_r8,   12.0_r8,   12.0_r8,  58.5_r8, 135.0_r8 /)

@@ -30,7 +30,7 @@ MODULE State_Chm_Mod
   USE Registry_Mod                       ! Registry module
   USE Species_Mod                        ! For species database and conc objects
 !
-#ifdef MODAL_AERO_4MODE
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
   USE MAM_Container_Mod                  ! MAM object
 #endif 
   IMPLICIT NONE
@@ -386,7 +386,7 @@ MODULE State_Chm_Mod
      REAL, POINTER      :: rlam(:)
 #endif
 !FAB j'essaie un type 
-#ifdef MODAL_AERO_4MODE
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
      TYPE(MAMContainer), POINTER :: GCMAM(:) ! MAM data object
 
 #endif 
@@ -658,7 +658,7 @@ CONTAINS
     ! KPP integrator quantities
     State_Chm%KPP_AbsTol        => NULL()
     State_Chm%KPP_RelTol        => NULL()
-#ifdef MODAL_AERO_4MODE
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
     State_Chm%GCMAM             => NULL()
 #endif
 
@@ -1058,7 +1058,7 @@ CONTAINS
           CALL GC_Error( errMsg, RC, thisLoc )
           RETURN
        ENDIF
-#ifdef MODAL_AERO_4MODE
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
 ! FAB  make number of modes interactive, perhaps as a State_Chm variable
        ALLOCATE( State_Chm%GCMAM(4), STAT=RC )
          CALL Init_MAM_Container( Input_Opt, State_Grid,State_Chm%SpcDATA, &
@@ -3324,7 +3324,7 @@ CONTAINS
        DEALLOCATE( State_Chm%AerMass )
        State_Chm%AerMass => NULL()
     ENDIF
-#ifdef MODAL_AERO_4MODE  
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)  
       IF ( ASSOCIATED( State_Chm%GCMAM ) ) THEN
        CALL Cleanup_MAM_Container(State_Chm%GCMAM, RC )
        DEALLOCATE( State_Chm%GCMAM )

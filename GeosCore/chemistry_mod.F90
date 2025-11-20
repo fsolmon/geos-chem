@@ -94,9 +94,9 @@ CONTAINS
 #ifdef TOMAS
     USE TOMAS_MOD,        ONLY : DO_TOMAS  !(win, 7/14/09)
 #endif
-!FAB#ifdef MAM
-    USE MAM_DRIV_MOD,       ONLY : MAM_DRIV
-!#endif
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
+  USE MAM_DRIV_MOD,       ONLY : MAM_DRIV
+#endif
 !
 ! !INPUT PARAMETERS:
 !

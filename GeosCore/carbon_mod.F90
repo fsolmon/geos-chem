@@ -841,7 +841,7 @@ CONTAINS
       ENDDO
       ENDDO
       !$OMP END PARALLEL DO
-#elif defined (MODAL_AERO_4MODE)
+#elif (defined (MODAL_AERO_4MODE) || defined (MODAL_AERO_4MODE_MOM))
 !FAB here just do nothing as SOAP will be updtated and condensed by MAM  
 ! perhaps think about duplicating SOAP tracer specific for MAM 
 #else

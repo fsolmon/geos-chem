@@ -1753,7 +1753,7 @@ CONTAINS
                       ! Particle density [kg/m3]
                       DEN   = A_DEN(K)
 #endif
-#ifdef MODAL_AERO_4MODE
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
 !FAB depvel for mam uses the size dependant DUST_SFCRSII
 !modal wet radius and densities are directly passed
                       IF(SpcInfo%MamModId > 0 ) THEN

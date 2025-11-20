@@ -1119,13 +1119,13 @@ loop:    do i = icldphy+1, pcnst
        write(iulog,9000) 'carbonate  '
        do m = 1, ntot_amode
           call initaermodes_setspecptrs_write2( m,                    &
-               lptr_mlip_a_amode(m), lptr_mlip_cw_amode(m),  'carbonate' )
+               lptr_co3_a_amode(m), lptr_co3_cw_amode(m),  'carbonate' )
        end do
 
        write(iulog,9000) 'chloride   '
        do m = 1, ntot_amode
           call initaermodes_setspecptrs_write2( m,                    &
-               lptr_mlip_a_amode(m), lptr_mlip_cw_amode(m),  'chloride' )
+               lptr_cl_a_amode(m), lptr_cl_cw_amode(m),  'chloride' )
        end do
 ! --MW
 
@@ -1452,7 +1452,7 @@ do s = 1, l
    if (solsym(s)(1:4) == 'HNO3') adv_mass(s) = 63.0123400_r8
    if (solsym(s)(1:3) == 'NH3') adv_mass(s) =  17.0289402_r8
    if (solsym(s)(1:3) == 'HCL') adv_mass(s) = 36.4601000_r8
-   if (solsym(s)(1:4) == 'SOAG') adv_mass(s) = 98.078400_r8
+   if (solsym(s)(1:4) == 'SOAG') adv_mass(s) = 150_r8
    
    if (solsym(s)(1:3) == 'so4') adv_mass(s) = 96.0635986_r8 
    if (solsym(s)(1:3) == 'pom') adv_mass(s) = 12.011000_r8 

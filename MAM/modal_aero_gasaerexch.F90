@@ -1079,7 +1079,12 @@ implicit none
 !    as a result, the molar mixing ratios for both gsoa and asoa
 !       are artificially scaled up by (150/12)
 !       and g0_soa must be similarly scaled up
-      g0_soa = g0_soa*(150.0_r8/12.0_r8)
+
+! FAB In GC context one could eiter modify adv_mass to 12. for SOA, 
+! or comment out the mass correction. Since 150 is also used to characterize SOAP/SOAS in GC
+! I choose to comment out this line ( which is dangerous anyway for MAM portability) 
+!      g0_soa = g0_soa*(150.0_r8/12.0_r8)
+
 !     g0_soa = 0.0   ! force irreversible uptake
 
       niter = 0

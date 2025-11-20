@@ -148,7 +148,7 @@ CONTAINS
     USE TOMAS_MOD,                ONLY : PSO4AQ_RATE
 #endif
 !FAB perhaps think about a common interface with TOMAS
-#ifdef MODAL_AERO_4MODE
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
     USE MAM_DRIV_MOD,                ONLY : H2SO4_RATE
     USE MAM_DRIV_MOD,                ONLY : PSO4AQ_RATE
 #endif
@@ -1356,7 +1356,7 @@ CONTAINS
 
        ENDDO
 
-#if defined(TOMAS) || defined(MODAL_AERO_4MODE)
+#if defined(TOMAS) || defined(MODAL_AERO_4MODE) || defined(MODAL_AERO_4MODE_MOM)
 !FAB#ifdef TOMAS
        !-----------------------------------------------------------------
        ! FOR TOMAS MICROPHYSICS:

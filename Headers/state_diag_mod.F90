@@ -540,7 +540,7 @@ MODULE State_Diag_Mod
      TYPE(DgnMap),       POINTER :: Map_TomasSOAnumber
      LOGICAL                     :: Archive_TomasSOAnumber
 #endif
-#ifdef MODAL_AERO_4MODE
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
      LOGICAL                     :: Archive_MAM
      REAL(f4),           POINTER :: MamSO4mass(:,:,:)
      REAL(f4),           POINTER :: MamBCmass(:,:,:)
@@ -2014,7 +2014,7 @@ CONTAINS
     State_Diag%Map_TomasSOAnumber                  => NULL()
     State_Diag%Archive_TomasSOAnumber              = .FALSE.
 #endif
-#ifdef MODAL_AERO_4MODE 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM) 
     !%%%%% Mam mass diagnostics %%%%%
     State_Diag%Archive_Mam                     = .FALSE.
     State_Diag%MamSO4mass                      => NULL()
@@ -8539,7 +8539,7 @@ CONTAINS
           RETURN
        ENDIF
 #endif
-#ifdef MODAL_AERO_4MODE
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
        !--------------------------------------------------------------------
        ! MAM - diag 
        !--------------------------------------------------------------------
@@ -12524,7 +12524,7 @@ CONTAINS
                                   State_Diag%Archive_TomasSOAmass           .or. &
                                   State_Diag%Archive_TomasSOAnumber         )
 #endif
-#ifdef MODAL_AERO_4MODE
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
     State_Diag%Archive_Mam  = ( State_Diag%Archive_MamSO4mass           .or. &
                                 State_Diag%Archive_MamBCmass            .or. &
                                 State_Diag%Archive_MamPOMmass           .or. &
@@ -13583,7 +13583,7 @@ CONTAINS
                    RC       = RC                                            )
     IF ( RC /= GC_SUCCESS ) RETURN
 #endif
-#ifdef MODAL_AERO_4MODE 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM) 
     CALL Finalize( diagId   = 'MamSO4mass',                              &
                    Ptr2Data = State_Diag%MamSO4mass,                     &
                  !  mapData  = State_Diag%Map_MamSO4mass,                 &
@@ -16315,7 +16315,7 @@ CONTAINS
        IF ( isDesc    ) Desc  = 'Mass of aerosol products of terpene oxidation'
        IF ( isUnits   ) Units = 'ug m-3'
        IF ( isRank    ) Rank  =  3
-#ifdef MODAL_AERO_4MODE
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
    ELSE IF ( TRIM( Name_AllCaps ) == 'MAMSO4MASS' ) THEN
        IF ( isDesc    ) Desc  = 'Mass of sulfate aerosol'
        IF ( isUnits   ) Units = 'ug m-3'

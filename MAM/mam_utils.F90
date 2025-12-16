@@ -26,7 +26,7 @@ MODULE MAM_UTILS
   integer, parameter :: plon = 1
  
 
-  integer :: mdo_mambox, mdo_gaschem, mdo_cloudchem
+  integer :: mdo_mambox, mdo_gaschem, mdo_cloudchem, mdo_coldstart
   integer :: mdo_gasaerexch, mdo_rename, mdo_newnuc, mdo_coag
 
   integer :: pcols 

@@ -541,13 +541,23 @@ MODULE State_Diag_Mod
      LOGICAL                     :: Archive_TomasSOAnumber
 #endif
 #if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
-     LOGICAL                     :: Archive_MAM
+LOGICAL                     :: Archive_MAM
      REAL(f4),           POINTER :: MamSO4mass(:,:,:)
      REAL(f4),           POINTER :: MamBCmass(:,:,:)
      REAL(f4),           POINTER :: MamPOMmass(:,:,:)
      REAL(f4),           POINTER :: MamSOAmass(:,:,:)
      REAL(f4),           POINTER :: MamSSLTmass(:,:,:)
      REAL(f4),           POINTER :: MamDUSTmass(:,:,:)
+     REAL(f4),           POINTER :: MamNH4mass(:,:,:)
+     REAL(f4),           POINTER :: MamNO3mass(:,:,:)
+     REAL(f4),           POINTER :: MamCAmass(:,:,:)
+     REAL(f4),           POINTER :: MamCO3mass(:,:,:)
+     REAL(f4),           POINTER :: MamCLmass(:,:,:)
+     REAL(f4),           POINTER :: MamMOMmass(:,:,:)
+     REAL(f4),           POINTER :: MamWATmass(:,:,:)
+     REAL(f4),           POINTER :: Mamwetrad(:,:,:)
+     REAL(f4),           POINTER :: Mamdryrad(:,:,:)
+     REAL(f4),           POINTER :: Mamhygro(:,:,:)
      REAL(f4),           POINTER :: MamNu(:,:,:,:)
      TYPE(DgnMap),       POINTER :: Map_MamSO4mass
      TYPE(DgnMap),       POINTER :: Map_MamBCmass
@@ -555,6 +565,16 @@ MODULE State_Diag_Mod
      TYPE(DgnMap),       POINTER :: Map_MamSOAmass
      TYPE(DgnMap),       POINTER :: Map_MamSSLTmass
      TYPE(DgnMap),       POINTER :: Map_MamDUSTmass
+     TYPE(DgnMap),       POINTER :: Map_MamNH4mass
+     TYPE(DgnMap),       POINTER :: Map_MamNO3mass
+     TYPE(DgnMap),       POINTER :: Map_MamCAmass
+     TYPE(DgnMap),       POINTER :: Map_MamCO3mass
+     TYPE(DgnMap),       POINTER :: Map_MamCLmass
+     TYPE(DgnMap),       POINTER :: Map_MamMOMmass
+     TYPE(DgnMap),       POINTER :: Map_MamWATmass
+     TYPE(DgnMap),       POINTER :: Map_Mamwetrad
+     TYPE(DgnMap),       POINTER :: Map_Mamdryrad
+     TYPE(DgnMap),       POINTER :: Map_Mamhygro
      TYPE(DgnMap),       POINTER :: Map_MamNu
      LOGICAL                     :: Archive_MamSO4mass
      LOGICAL                     :: Archive_MamBCmass
@@ -562,6 +582,16 @@ MODULE State_Diag_Mod
      LOGICAL                     :: Archive_MamSOAmass
      LOGICAL                     :: Archive_MamSSLTmass
      LOGICAL                     :: Archive_MamDUSTmass
+     LOGICAL                     :: Archive_MamNH4mass
+     LOGICAL                     :: Archive_MamNO3mass
+     LOGICAL                     :: Archive_MamCAmass
+     LOGICAL                     :: Archive_MamCO3mass
+     LOGICAL                     :: Archive_MamCLmass
+     LOGICAL                     :: Archive_MamMOMmass
+     LOGICAL                     :: Archive_MamWATmass
+     LOGICAL                     :: Archive_Mamwetrad
+     LOGICAL                     :: Archive_Mamdryrad
+     LOGICAL                     :: Archive_Mamhygro
      LOGICAL                     :: Archive_MamNu
 #endif
 
@@ -2015,7 +2045,7 @@ CONTAINS
     State_Diag%Archive_TomasSOAnumber              = .FALSE.
 #endif
 #if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM) 
-    !%%%%% Mam mass diagnostics %%%%%
+!%%%%% Mam mass diagnostics %%%%%
     State_Diag%Archive_Mam                     = .FALSE.
     State_Diag%MamSO4mass                      => NULL()
     State_Diag%MamBCmass                       => NULL()
@@ -2023,6 +2053,16 @@ CONTAINS
     State_Diag%MamSOAmass                      => NULL()
     State_Diag%MamSSLTmass                     => NULL()
     State_Diag%MamDUSTmass                     => NULL()
+    State_Diag%MamNH4mass                      => NULL()
+    State_Diag%MamNO3mass                      => NULL()
+    State_Diag%MamCAmass                       => NULL()
+    State_Diag%MamCO3mass                      => NULL()
+    State_Diag%MamCLmass                       => NULL()
+    State_Diag%MamMOMmass                      => NULL()
+    State_Diag%MamWATmass                      => NULL()
+    State_Diag%Mamwetrad                       => NULL()
+    State_Diag%Mamdryrad                       => NULL()
+    State_Diag%Mamhygro                        => NULL()
     State_Diag%MamNu                           => NULL()
     State_Diag%Map_MamSO4mass                  => NULL()
     State_Diag%Map_MamBCmass                   => NULL()
@@ -2030,6 +2070,16 @@ CONTAINS
     State_Diag%Map_MamSOAmass                  => NULL()
     State_Diag%Map_MamSSLTmass                 => NULL()
     State_Diag%Map_MamDUSTmass                 => NULL()
+    State_Diag%Map_MamNH4mass                  => NULL()
+    State_Diag%Map_MamNO3mass                  => NULL()
+    State_Diag%Map_MamCAmass                   => NULL()
+    State_Diag%Map_MamCO3mass                  => NULL()
+    State_Diag%Map_MamCLmass                   => NULL()
+    State_Diag%Map_MamMOMmass                  => NULL()
+    State_Diag%Map_MamWATmass                  => NULL()
+    State_Diag%Map_Mamwetrad                   => NULL()
+    State_Diag%Map_Mamdryrad                   => NULL()
+    State_Diag%Map_Mamhygro                    => NULL()
     State_Diag%Map_MamNu                       => NULL()
     State_Diag%Archive_MamSO4mass              = .FALSE.
     State_Diag%Archive_MamBCmass               = .FALSE.
@@ -2037,6 +2087,16 @@ CONTAINS
     State_Diag%Archive_MamSOAmass              = .FALSE.
     State_Diag%Archive_MamSSLTmass             = .FALSE.
     State_Diag%Archive_MamDUSTmass             = .FALSE.
+    State_Diag%Archive_MamNH4mass              = .FALSE.
+    State_Diag%Archive_MamNO3mass              = .FALSE.
+    State_Diag%Archive_MamCAmass               = .FALSE.
+    State_Diag%Archive_MamCO3mass              = .FALSE.
+    State_Diag%Archive_MamCLmass               = .FALSE.
+    State_Diag%Archive_MamMOMmass              = .FALSE.
+    State_Diag%Archive_MamWATmass              = .FALSE.
+    State_Diag%Archive_Mamwetrad               = .FALSE.
+    State_Diag%Archive_Mamdryrad               = .FALSE.
+    State_Diag%Archive_Mamhygro                = .FALSE.
     State_Diag%Archive_MamNu                   = .FALSE.
 #endif
     !%%%%% Aerosol optical depth diagnostics %%%%%
@@ -8633,6 +8693,156 @@ CONTAINS
             diagFlag       = 'T',                                            &
             RC             = RC                                             )
 
+       diagID  = 'MamNH4mass'
+       CALL Init_and_Register(                                               &
+            Input_Opt      = Input_Opt,                                      &
+            State_Chm      = State_Chm,                                      &
+            State_Diag     = State_Diag,                                     &
+            State_Grid     = State_Grid,                                     &
+            DiagList       = Diag_List,                                      &
+            TaggedDiagList = TaggedDiag_List,                                &
+            Ptr2Data       = State_Diag%MamNH4mass,                          &
+            archiveData    = State_Diag%Archive_MamNH4mass,                  &
+           ! mapData        = State_Diag%Map_MamNH4mass,                     &
+            diagId         = diagId,                                         &
+            diagFlag       = 'T',                                            &
+            RC             = RC                                             )
+
+       diagID  = 'MamNO3mass'
+       CALL Init_and_Register(                                               &
+            Input_Opt      = Input_Opt,                                      &
+            State_Chm      = State_Chm,                                      &
+            State_Diag     = State_Diag,                                     &
+            State_Grid     = State_Grid,                                     &
+            DiagList       = Diag_List,                                      &
+            TaggedDiagList = TaggedDiag_List,                                &
+            Ptr2Data       = State_Diag%MamNO3mass,                          &
+            archiveData    = State_Diag%Archive_MamNO3mass,                  &
+           ! mapData        = State_Diag%Map_MamNO3mass,                     &
+            diagId         = diagId,                                         &
+            diagFlag       = 'T',                                            &
+            RC             = RC                                             )
+
+       diagID  = 'MamCAmass'
+       CALL Init_and_Register(                                               &
+            Input_Opt      = Input_Opt,                                      &
+            State_Chm      = State_Chm,                                      &
+            State_Diag     = State_Diag,                                     &
+            State_Grid     = State_Grid,                                     &
+            DiagList       = Diag_List,                                      &
+            TaggedDiagList = TaggedDiag_List,                                &
+            Ptr2Data       = State_Diag%MamCAmass,                           &
+            archiveData    = State_Diag%Archive_MamCAmass,                   &
+           ! mapData        = State_Diag%Map_MamCAmass,                      &
+            diagId         = diagId,                                         &
+            diagFlag       = 'T',                                            &
+            RC             = RC                                             )
+
+       diagID  = 'MamCO3mass'
+       CALL Init_and_Register(                                               &
+            Input_Opt      = Input_Opt,                                      &
+            State_Chm      = State_Chm,                                      &
+            State_Diag     = State_Diag,                                     &
+            State_Grid     = State_Grid,                                     &
+            DiagList       = Diag_List,                                      &
+            TaggedDiagList = TaggedDiag_List,                                &
+            Ptr2Data       = State_Diag%MamCO3mass,                          &
+            archiveData    = State_Diag%Archive_MamCO3mass,                  &
+           ! mapData        = State_Diag%Map_MamCO3mass,                     &
+            diagId         = diagId,                                         &
+            diagFlag       = 'T',                                            &
+            RC             = RC                                             )
+
+       diagID  = 'MamCLmass'
+       CALL Init_and_Register(                                               &
+            Input_Opt      = Input_Opt,                                      &
+            State_Chm      = State_Chm,                                      &
+            State_Diag     = State_Diag,                                     &
+            State_Grid     = State_Grid,                                     &
+            DiagList       = Diag_List,                                      &
+            TaggedDiagList = TaggedDiag_List,                                &
+            Ptr2Data       = State_Diag%MamCLmass,                           &
+            archiveData    = State_Diag%Archive_MamCLmass,                   &
+           ! mapData        = State_Diag%Map_MamCLmass,                      &
+            diagId         = diagId,                                         &
+            diagFlag       = 'T',                                            &
+            RC             = RC                                             )
+
+      diagID  = 'MamMOMmass'
+      CALL Init_and_Register(                                               &
+           Input_Opt      = Input_Opt,                                      &
+           State_Chm      = State_Chm,                                      &
+           State_Diag     = State_Diag,                                     &
+           State_Grid     = State_Grid,                                     &
+           DiagList       = Diag_List,                                      &
+           TaggedDiagList = TaggedDiag_List,                                &
+           Ptr2Data       = State_Diag%MamMOMmass,                          &
+           archiveData    = State_Diag%Archive_MamMOMmass,                  &
+          ! mapData        = State_Diag%Map_MamMOMmass,                     &
+           diagId         = diagId,                                         &
+           diagFlag       = 'T',                                            &
+           RC             = RC                                             )
+
+      diagID  = 'MamWATmass'
+      CALL Init_and_Register(                                               &
+           Input_Opt      = Input_Opt,                                      &
+           State_Chm      = State_Chm,                                      &
+           State_Diag     = State_Diag,                                     &
+           State_Grid     = State_Grid,                                     &
+           DiagList       = Diag_List,                                      &
+           TaggedDiagList = TaggedDiag_List,                                &
+           Ptr2Data       = State_Diag%MamWATmass,                          &
+           archiveData    = State_Diag%Archive_MamWATmass,                  &
+          ! mapData        = State_Diag%Map_MamWATmass,                     &
+           diagId         = diagId,                                         &
+           diagFlag       = 'T',                                            &
+           RC             = RC                                             )
+
+      diagID  = 'Mamwetrad'
+      CALL Init_and_Register(                                               &
+           Input_Opt      = Input_Opt,                                      &
+           State_Chm      = State_Chm,                                      &
+           State_Diag     = State_Diag,                                     &
+           State_Grid     = State_Grid,                                     &
+           DiagList       = Diag_List,                                      &
+           TaggedDiagList = TaggedDiag_List,                                &
+           Ptr2Data       = State_Diag%Mamwetrad,                           &
+           archiveData    = State_Diag%Archive_Mamwetrad,                   &
+          ! mapData        = State_Diag%Map_Mamwetrad,                      &
+           diagId         = diagId,                                         &
+           diagFlag       = 'T',                                            &
+           RC             = RC                                             )
+
+      diagID  = 'Mamdryrad'
+      CALL Init_and_Register(                                               &
+           Input_Opt      = Input_Opt,                                      &
+           State_Chm      = State_Chm,                                      &
+           State_Diag     = State_Diag,                                     &
+           State_Grid     = State_Grid,                                     &
+           DiagList       = Diag_List,                                      &
+           TaggedDiagList = TaggedDiag_List,                                &
+           Ptr2Data       = State_Diag%Mamdryrad,                           &
+           archiveData    = State_Diag%Archive_Mamdryrad,                   &
+          ! mapData        = State_Diag%Map_Mamdryrad,                      &
+           diagId         = diagId,                                         &
+           diagFlag       = 'T',                                            &
+           RC             = RC                                             )
+
+      diagID  = 'Mamhygro'
+      CALL Init_and_Register(                                               &
+           Input_Opt      = Input_Opt,                                      &
+           State_Chm      = State_Chm,                                      &
+           State_Diag     = State_Diag,                                     &
+           State_Grid     = State_Grid,                                     &
+           DiagList       = Diag_List,                                      &
+           TaggedDiagList = TaggedDiag_List,                                &
+           Ptr2Data       = State_Diag%Mamhygro,                            &
+           archiveData    = State_Diag%Archive_Mamhygro,                    &
+          ! mapData        = State_Diag%Map_Mamhygro,                       &
+           diagId         = diagId,                                         &
+           diagFlag       = 'T',                                            &
+           RC             = RC                                             )
+
        diagID  = 'MamNu'
        CALL Init_and_Register(                                               &
             Input_Opt      = Input_Opt,                                      &
@@ -12525,14 +12735,23 @@ CONTAINS
                                   State_Diag%Archive_TomasSOAnumber         )
 #endif
 #if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
-    State_Diag%Archive_Mam  = ( State_Diag%Archive_MamSO4mass           .or. &
-                                State_Diag%Archive_MamBCmass            .or. &
-                                State_Diag%Archive_MamPOMmass           .or. &
-                                State_Diag%Archive_MamSOAmass           .or. &
-                                State_Diag%Archive_MamSSLTmass          .or. &
-                                State_Diag%Archive_MamDUSTmass          .or. &
-                                State_Diag%Archive_MamNu     )
-
+     State_Diag%Archive_Mam  = ( State_Diag%Archive_MamSO4mass           .or. &
+                                 State_Diag%Archive_MamBCmass            .or. &
+                                 State_Diag%Archive_MamPOMmass           .or. &
+                                 State_Diag%Archive_MamSOAmass           .or. &
+                                 State_Diag%Archive_MamSSLTmass          .or. &
+                                 State_Diag%Archive_MamDUSTmass          .or. &
+                                 State_Diag%Archive_MamNH4mass           .or. &
+                                 State_Diag%Archive_MamNO3mass           .or. &
+                                 State_Diag%Archive_MamCAmass            .or. &
+                                 State_Diag%Archive_MamCO3mass           .or. &
+                                 State_Diag%Archive_MamCLmass            .or. &
+                                 State_Diag%Archive_MamMOMmass           .or. &
+                                 State_Diag%Archive_MamWATmass           .or. &
+                                 State_Diag%Archive_Mamwetrad            .or. &
+                                 State_Diag%Archive_Mamdryrad            .or. &
+                                 State_Diag%Archive_Mamhygro             .or. &
+                                 State_Diag%Archive_MamNu     )
 #endif
     State_Diag%Archive_AOD  = ( State_Diag%Archive_AODHygWL1            .or. &
                                 State_Diag%Archive_AODHygWL2            .or. &
@@ -13620,7 +13839,67 @@ CONTAINS
                    RC       = RC                                            )
     IF ( RC /= GC_SUCCESS ) RETURN
 
-    CALL Finalize( diagId   = 'MamNu',                             &
+    CALL Finalize( diagId   = 'MamNH4mass',                              &
+                   Ptr2Data = State_Diag%MamNH4mass,                     &
+                 !  mapData  = State_Diag%Map_MamNH4mass,                 &
+                   RC       = RC                                            )
+    IF ( RC /= GC_SUCCESS ) RETURN
+
+    CALL Finalize( diagId   = 'MamNO3mass',                              &
+                   Ptr2Data = State_Diag%MamNO3mass,                     &
+                 !  mapData  = State_Diag%Map_MamNO3mass,                 &
+                   RC       = RC                                            )
+    IF ( RC /= GC_SUCCESS ) RETURN
+
+    CALL Finalize( diagId   = 'MamCAmass',                               &
+                   Ptr2Data = State_Diag%MamCAmass,                      &
+                 !  mapData  = State_Diag%Map_MamCAmass,                  &
+                   RC       = RC                                            )
+    IF ( RC /= GC_SUCCESS ) RETURN
+
+    CALL Finalize( diagId   = 'MamCO3mass',                              &
+                   Ptr2Data = State_Diag%MamCO3mass,                     &
+                 !  mapData  = State_Diag%Map_MamCO3mass,                 &
+                   RC       = RC                                            )
+    IF ( RC /= GC_SUCCESS ) RETURN
+
+    CALL Finalize( diagId   = 'MamCLmass',                               &
+                   Ptr2Data = State_Diag%MamCLmass,                      &
+                 !  mapData  = State_Diag%Map_MamCLmass,                  &
+                   RC       = RC                                            )
+    IF ( RC /= GC_SUCCESS ) RETURN
+
+    CALL Finalize( diagId   = 'MamMOMmass',                              &
+                   Ptr2Data = State_Diag%MamMOMmass,                     &
+                !  mapData  = State_Diag%Map_MamMOMmass,                 &
+                   RC       = RC                                            )
+    IF ( RC /= GC_SUCCESS ) RETURN
+
+     CALL Finalize( diagId   = 'MamWATmass',                              &
+               Ptr2Data = State_Diag%MamWATmass,                     &
+               !  mapData  = State_Diag%Map_MamWATmass,                 &
+               RC       = RC                                            )
+      IF ( RC /= GC_SUCCESS ) RETURN
+
+CALL Finalize( diagId   = 'Mamwetrad',                               &
+               Ptr2Data = State_Diag%Mamwetrad,                      &
+             !  mapData  = State_Diag%Map_Mamwetrad,                  &
+               RC       = RC                                            )
+IF ( RC /= GC_SUCCESS ) RETURN
+
+CALL Finalize( diagId   = 'Mamdryrad',                               &
+               Ptr2Data = State_Diag%Mamdryrad,                      &
+             !  mapData  = State_Diag%Map_Mamdryrad,                  &
+               RC       = RC                                            )
+IF ( RC /= GC_SUCCESS ) RETURN
+
+CALL Finalize( diagId   = 'Mamhygro',                                &
+               Ptr2Data = State_Diag%Mamhygro,                       &
+             !  mapData  = State_Diag%Map_Mamhygro,                   &
+               RC       = RC                                            )
+IF ( RC /= GC_SUCCESS ) RETURN
+
+             CALL Finalize( diagId   = 'MamNu',                             &
                    Ptr2Data = State_Diag%MamNu,                    &
                    mapData  = State_Diag%Map_MamNu,                &
                    RC       = RC                                            )
@@ -16345,6 +16624,56 @@ CONTAINS
        IF ( isDesc    ) Desc  = 'Mass of mineral dust aerosol'
        IF ( isUnits   ) Units = 'ug m-3'
        IF ( isRank    ) Rank  =  3
+
+   ELSE IF ( TRIM( Name_AllCaps ) == 'MAMNH4MASS' ) THEN
+       IF ( isDesc    ) Desc  = 'Mass of ammonium aerosol'
+       IF ( isUnits   ) Units = 'ug m-3'
+       IF ( isRank    ) Rank  =  3
+
+   ELSE IF ( TRIM( Name_AllCaps ) == 'MAMNO3MASS' ) THEN
+       IF ( isDesc    ) Desc  = 'Mass of nitrate aerosol'
+       IF ( isUnits   ) Units = 'ug m-3'
+       IF ( isRank    ) Rank  =  3
+
+   ELSE IF ( TRIM( Name_AllCaps ) == 'MAMCAMASS' ) THEN
+       IF ( isDesc    ) Desc  = 'Mass of calcium aerosol'
+       IF ( isUnits   ) Units = 'ug m-3'
+       IF ( isRank    ) Rank  =  3
+
+   ELSE IF ( TRIM( Name_AllCaps ) == 'MAMCO3MASS' ) THEN
+       IF ( isDesc    ) Desc  = 'Mass of carbonate aerosol'
+       IF ( isUnits   ) Units = 'ug m-3'
+       IF ( isRank    ) Rank  =  3
+
+   ELSE IF ( TRIM( Name_AllCaps ) == 'MAMCLMASS' ) THEN
+       IF ( isDesc    ) Desc  = 'Mass of chloride aerosol'
+       IF ( isUnits   ) Units = 'ug m-3'
+       IF ( isRank    ) Rank  =  3
+
+   ELSE IF ( TRIM( Name_AllCaps ) == 'MAMMOMMASS' ) THEN
+       IF ( isDesc    ) Desc  = 'Mass of marine organic matter aerosol'
+       IF ( isUnits   ) Units = 'ug m-3'
+       IF ( isRank    ) Rank  =  3
+
+   ELSE IF ( TRIM( Name_AllCaps ) == 'MAMWATMASS' ) THEN
+      IF ( isDesc    ) Desc  = 'Mass of aerosol water'
+      IF ( isUnits   ) Units = 'ug m-3'
+      IF ( isRank    ) Rank  =  3
+
+   ELSE IF ( TRIM( Name_AllCaps ) == 'MAMWETRAD' ) THEN
+      IF ( isDesc    ) Desc  = 'Wet radius of aerosol'
+      IF ( isUnits   ) Units = 'm'
+      IF ( isRank    ) Rank  =  3
+
+   ELSE IF ( TRIM( Name_AllCaps ) == 'MAMDRYRAD' ) THEN
+      IF ( isDesc    ) Desc  = 'Dry radius of aerosol'
+      IF ( isUnits   ) Units = 'm'
+      IF ( isRank    ) Rank  =  3
+
+   ELSE IF ( TRIM( Name_AllCaps ) == 'MAMHYGRO' ) THEN
+      IF ( isDesc    ) Desc  = 'Hygroscopicity of aerosol'
+      IF ( isUnits   ) Units = '1'
+      IF ( isRank    ) Rank  =  3
 
    ELSE IF ( TRIM( Name_AllCaps ) == 'MAMNU' ) THEN
        IF ( isDesc    ) Desc  = 'Mode number of aerosol'

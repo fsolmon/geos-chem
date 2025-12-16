@@ -892,15 +892,14 @@ CONTAINS
     ! FAB interstitial state is scavenged by convective clouds
     ! cloud-borne state is supposed to be tied to stratiform (LS) 
     ! cloud only. Since aerosols aere internally mixed in a given mode 
-    ! scavenging efficiency should be defined according to the mode 
-    ! ( more or less hydrophilic) in species_database.yml ...perhaps hat could b    
-    !  revisisited accoutning for modal composition or effective hygroscopicity ..     
+    ! scavenging efficiency accounts  effective hygroscopicity.
+    ! For now considers that all aerosol are interstitial anyway.    
    
        IF(SpcInfo%MamModId > 0 ) THEN !FAB revisit .and. .not.SpcInfo%Is_CloudBorne) THEN 
           CALL F_AEROSOL( KC, KcScale, Input_Opt, State_Grid, State_Met, F )
             IF ( SpcInfo%WD_AerScavEff > 0.0_fp ) THEN
-              ! F = F * SpcInfo%WD_AerScavEff
-                F = F * State_Chm%GCMAM(SpcInfo%MamModId)%hygro
+              ! F = F * SpcInfo%WD_AerScavEff ! WD_AerScavEff still used as a control 
+              F = F * State_Chm%GCMAM(SpcInfo%MamModId)%hygro
            ENDIF
        END IF
 #endif 
@@ -1467,7 +1466,6 @@ CONTAINS
 
        ! Apply temperature-dependent rainout efficiencies
        ! This accounts for impaction scavenging of certain aerosols
-!FAB
 #if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM) 
        if (SpcInfo%MamModId > 0 ) then !    
          CALL MAM_APPLY_RAINOUT_EFF(State_Chm%GCMAM(SpcInfo%MamModId)%hygro(I,J,L), &
@@ -4141,7 +4139,10 @@ CONTAINS
 
 #if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
 !FAB rainout applies only to MAM and cloud borne-state species 
-!cycle if not
+!cycle if not. 
+!Note : for now consider no cloudborne state :  is_cloudborne is set 
+!to true in the species.yml so that aerosol is still rained out based on hygroscopicity
+!( cf RAINOUT routine) 
        IF (State_Chm%SpcData(N)%Info%MamModId > 0 .and.                   &
          .not. State_Chm%SpcData(N)%Info%Is_CloudBorne) cycle
 #endif

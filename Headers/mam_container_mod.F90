@@ -45,10 +45,17 @@ MODULE Mam_container_Mod
      REAL(fp), POINTER :: soa(:,:,:) ! mam  mass concentration
      REAL(fp), POINTER :: sslt(:,:,:) ! mam  mass concentration
      REAL(fp), POINTER :: dust(:,:,:) ! mam  mass concentration
+     REAL(fp), POINTER :: nh4(:,:,:) ! mam  mass concentration
+     REAL(fp), POINTER :: no3(:,:,:) ! mam  mass concentration
+     REAL(fp), POINTER :: ca(:,:,:) ! mam  mass concentration
+     REAL(fp), POINTER :: co3(:,:,:) ! mam  mass concentration
+     REAL(fp), POINTER :: cl(:,:,:) ! mam  mass concentration
+     REAL(fp), POINTER :: mom(:,:,:) ! mam  mass concentration
    
      REAL(fp), POINTER :: nu(:,:,:) ! mam number concentration 
 
-     LOGICAL           :: lso4, lbc, lpom, lsoa, lsslt,ldust
+     LOGICAL           :: lso4, lbc, lpom, lsoa, lsslt, ldust
+     LOGICAL           :: lnh4, lno3, lca, lco3, lcl, lmom
 
 
   END TYPE MAMContainer 
@@ -134,6 +141,12 @@ CONTAINS
      GCMAM(n)%lsoa = .false.
      GCMAM(n)%lsslt = .false.
      GCMAM(n)%ldust = .false.
+     GCMAM(n)%lnh4 = .false.
+     GCMAM(n)%lno3 = .false.
+     GCMAM(n)%lca = .false.
+     GCMAM(n)%lco3 = .false.
+     GCMAM(n)%lcl = .false.
+     GCMAM(n)%lmom = .false.
 
     ! modal geo dry radius number
     ALLOCATE(GCMAM(n)%nudryrad( NX, NY, NZ ), STAT=RC )
@@ -271,6 +284,66 @@ CONTAINS
                 RETURN
               ENDIF
           end if
+          if (SpcLocData(s)%info%name(4:6) == 'NH4') then 
+              GCMAM(n)%lnh4 = .true.
+              ALLOCATE( GCMAM(n)%nh4( NX, NY, NZ ), STAT=RC )
+              CALL GC_CheckVar( 'NH4', 0, RC )
+              IF ( RC /= GC_SUCCESS ) THEN
+                errMsg = 'Error allocating array MAM !'
+                CALL GC_Error( errMsg, RC, thisLoc )
+                RETURN
+              ENDIF
+          end if
+          if (SpcLocData(s)%info%name(4:6) == 'NO3') then 
+              GCMAM(n)%lno3 = .true.
+              ALLOCATE( GCMAM(n)%no3( NX, NY, NZ ), STAT=RC )
+              CALL GC_CheckVar( 'NO3', 0, RC )
+              IF ( RC /= GC_SUCCESS ) THEN
+                errMsg = 'Error allocating array MAM !'
+                CALL GC_Error( errMsg, RC, thisLoc )
+                RETURN
+              ENDIF
+          end if
+          if (SpcLocData(s)%info%name(4:5) == 'CA') then 
+              GCMAM(n)%lca = .true.
+              ALLOCATE( GCMAM(n)%ca( NX, NY, NZ ), STAT=RC )
+              CALL GC_CheckVar( 'CA', 0, RC )
+              IF ( RC /= GC_SUCCESS ) THEN
+                errMsg = 'Error allocating array MAM !'
+                CALL GC_Error( errMsg, RC, thisLoc )
+                RETURN
+              ENDIF
+          end if
+          if (SpcLocData(s)%info%name(4:6) == 'CO3') then 
+              GCMAM(n)%lco3 = .true.
+              ALLOCATE( GCMAM(n)%co3( NX, NY, NZ ), STAT=RC )
+              CALL GC_CheckVar( 'CO3', 0, RC )
+              IF ( RC /= GC_SUCCESS ) THEN
+                errMsg = 'Error allocating array MAM !'
+                CALL GC_Error( errMsg, RC, thisLoc )
+                RETURN
+              ENDIF
+          end if
+          if (SpcLocData(s)%info%name(4:5) == 'CL') then 
+              GCMAM(n)%lcl = .true.
+              ALLOCATE( GCMAM(n)%cl( NX, NY, NZ ), STAT=RC )
+              CALL GC_CheckVar( 'CL', 0, RC )
+              IF ( RC /= GC_SUCCESS ) THEN
+                errMsg = 'Error allocating array MAM !'
+                CALL GC_Error( errMsg, RC, thisLoc )
+                RETURN
+              ENDIF
+          end if
+          if (SpcLocData(s)%info%name(4:6) == 'MOM') then 
+              GCMAM(n)%lmom = .true.
+              ALLOCATE( GCMAM(n)%mom( NX, NY, NZ ), STAT=RC )
+              CALL GC_CheckVar( 'MOM', 0, RC )
+              IF ( RC /= GC_SUCCESS ) THEN
+                errMsg = 'Error allocating array MAM !'
+                CALL GC_Error( errMsg, RC, thisLoc )
+                RETURN
+              ENDIF
+          end if
           if (SpcLocData(s)%info%name(4:5) == 'Nu') then 
               ALLOCATE( GCMAM(n)%Nu( NX, NY, NZ ), STAT=RC )
               CALL GC_CheckVar( 'Nu', 0, RC )
@@ -377,6 +450,96 @@ CONTAINS
        GCMAM(n)%aerwat => NULL()
      ENDIF
 
+     IF ( ASSOCIATED(GCMAM(n)%so4 ) ) THEN
+       DEALLOCATE( GCMAM(n)%so4, STAT=RC )
+       CALL GC_CheckVar( 'MAM%so4', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%so4 => NULL()
+     ENDIF
+
+     IF ( ASSOCIATED(GCMAM(n)%bc ) ) THEN
+       DEALLOCATE( GCMAM(n)%bc, STAT=RC )
+       CALL GC_CheckVar( 'MAM%bc', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%bc => NULL()
+     ENDIF
+
+     IF ( ASSOCIATED(GCMAM(n)%pom ) ) THEN
+       DEALLOCATE( GCMAM(n)%pom, STAT=RC )
+       CALL GC_CheckVar( 'MAM%pom', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%pom => NULL()
+     ENDIF
+
+     IF ( ASSOCIATED(GCMAM(n)%soa ) ) THEN
+       DEALLOCATE( GCMAM(n)%soa, STAT=RC )
+       CALL GC_CheckVar( 'MAM%soa', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%soa => NULL()
+     ENDIF
+
+     IF ( ASSOCIATED(GCMAM(n)%sslt ) ) THEN
+       DEALLOCATE( GCMAM(n)%sslt, STAT=RC )
+       CALL GC_CheckVar( 'MAM%sslt', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%sslt => NULL()
+     ENDIF
+
+     IF ( ASSOCIATED(GCMAM(n)%dust ) ) THEN
+       DEALLOCATE( GCMAM(n)%dust, STAT=RC )
+       CALL GC_CheckVar( 'MAM%dust', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%dust => NULL()
+     ENDIF
+
+     IF ( ASSOCIATED(GCMAM(n)%nh4 ) ) THEN
+       DEALLOCATE( GCMAM(n)%nh4, STAT=RC )
+       CALL GC_CheckVar( 'MAM%nh4', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%nh4 => NULL()
+     ENDIF
+
+     IF ( ASSOCIATED(GCMAM(n)%no3 ) ) THEN
+       DEALLOCATE( GCMAM(n)%no3, STAT=RC )
+       CALL GC_CheckVar( 'MAM%no3', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%no3 => NULL()
+     ENDIF
+
+     IF ( ASSOCIATED(GCMAM(n)%ca ) ) THEN
+       DEALLOCATE( GCMAM(n)%ca, STAT=RC )
+       CALL GC_CheckVar( 'MAM%ca', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%ca => NULL()
+     ENDIF
+
+     IF ( ASSOCIATED(GCMAM(n)%co3 ) ) THEN
+       DEALLOCATE( GCMAM(n)%co3, STAT=RC )
+       CALL GC_CheckVar( 'MAM%co3', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%co3 => NULL()
+     ENDIF
+
+     IF ( ASSOCIATED(GCMAM(n)%cl ) ) THEN
+       DEALLOCATE( GCMAM(n)%cl, STAT=RC )
+       CALL GC_CheckVar( 'MAM%cl', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%cl => NULL()
+     ENDIF
+
+     IF ( ASSOCIATED(GCMAM(n)%mom ) ) THEN
+       DEALLOCATE( GCMAM(n)%mom, STAT=RC )
+       CALL GC_CheckVar( 'MAM%mom', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%mom => NULL()
+     ENDIF
+
+     IF ( ASSOCIATED(GCMAM(n)%nu ) ) THEN
+       DEALLOCATE( GCMAM(n)%nu, STAT=RC )
+       CALL GC_CheckVar( 'MAM%nu', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%nu => NULL()
+     ENDIF
 
     END DO 
    
@@ -384,5 +547,3 @@ CONTAINS
 !EOC
 
 END MODULE Mam_container_Mod
-
-

@@ -500,7 +500,6 @@ CONTAINS
 
        ! Molecular weight in kg
        MWkg = SpcInfo%MW_g * 1.e-3_fp
-
        !--------------------------------------------------------------------
        ! Check if we need to do dry deposition for this species
        !--------------------------------------------------------------------
@@ -593,7 +592,6 @@ CONTAINS
        ! Loop over all grid boxes
        DO J = 1, State_Grid%NY
        DO I = 1, State_Grid%NX
-
           !-----------------------------------------------------------------
           ! Define various quantities before computing tendencies
           !-----------------------------------------------------------------
@@ -634,7 +632,6 @@ CONTAINS
 
           ! Loop over selected vertical levels
           DO L = L1, L2
-
              !--------------------------------------------------------------
              ! Apply dry deposition frequencies to all levels below the
              ! PBL top.
@@ -774,16 +771,30 @@ CONTAINS
                       ENDIF
                    ENDIF
 #endif
-
                    ! Add to species array
                    State_Chm%Species(N)%Conc(I,J,L) = &
                          State_Chm%Species(N)%Conc(I,J,L) + FLUX
+              if(   State_Chm%Species(N)%Conc(I,J,L)<0. .and. State_Chm%SpcData(N)%Info%name == 'MAMCO33')  print*, 'in mixing',State_Chm%Species(N)%Conc(I,J,L), FLUX 
                 ENDIF
              ENDIF
 
              ! Check for negative concentrations
              IF ( State_Chm%Species(N)%Conc(I,J,L) < 0.0_fp ) THEN
-#ifdef TOMAS
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
+                ! FAB For MAM simulations, apply the same patch as for TOMAS.
+                ! Look for negative and reset  to small positive. This prevents the run from dying,
+                ! while we look for the root cause of the issue  .... not straightforward:
+                ! negative concentrations ar sometime generated (likely before mixing, but not detected in mam).
+                ! Hypothesis ( after tests): mam-mosaic aerexch  processes are generating punctually
+                ! (but especially for MAMCO33 it seems) some exotic vertical gradients and some pb 
+                ! in column processes like convtran, etc , resulting in neg val specifically detected here ...     
+                ! In any case , check the occurence of this WARNING in simulation log file
+                Print*, 'WARNING: Negative concentration for MAM species ',    &
+                            TRIM( SpcInfo%Name), ' at (I,J,L) = ', I, J, L
+                print*, 'Resetting conc. to very small  '
+                State_Chm%Species(N)%Conc(I,J,:) = 1e-26_fp
+                
+#elif ( defined TOMAS)
                 ! For TOMAS simulations only, look for negative and reset
                 ! to small positive.  This prevents the run from dying,
                 ! while we look for the root cause of the issue.

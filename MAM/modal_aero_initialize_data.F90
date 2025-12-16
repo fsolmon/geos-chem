@@ -1419,15 +1419,12 @@ end if
       l = n - (imozart-1)
 
 
-      write(*,'(/a,3i5 )') 'pcols, pver               =', pcols, pver
-      print*, 'pcnst, gas_pcnst, imozart =', pcnst, gas_pcnst, l, imozart, nbc,npoa,nsoa,n
       if (pcnst /= gas_pcnst+imozart-1) call endrun( '*** bad pcnst aa' )
       if (pcnst /= n                  ) call endrun( '*** bad pcnst bb' )
 
 
 #if (( defined MODAL_AERO_4MODE_MOM ) && ( defined RAIN_EVAP_TO_COARSE_AERO ) && ( defined MOSAIC_SPECIES )) 
 
-print* ,'FAB je passe dans COARSE+MOM+MOSAIC', l  
 
 solsym(:l) = &
       (/ 'H2O2          ', 'H2SO4         ', 'SO2           ', 'DMS           ', 'NH3           ',  &
@@ -1484,9 +1481,6 @@ end do
 
 #elif ( defined MODAL_AERO_4MODE )
       
-print*, 'FAB je passe MODAL_AERO_4MODE'
-
-      solsym(:l) = &
       (/ 'H2O2    ', 'H2SO4   ', 'SO2     ', 'DMS     ',             &
          'SOAG    ', 'so4_a1  ',             'pom_a1  ', 'soa_a1  ', &
          'bc_a1   ', 'ncl_a1  ', 'dst_a1  ', 'num_a1  ', 'so4_a2  ', &
@@ -1613,7 +1607,7 @@ SUBROUTINE MAM_cold_start (physta,nstop,deltat)
         use physconst, only: pi, mwdry,r_universal 
         use mam_utils, only: pcols,pver, endrun, & 
                 l_h2so4g, l_soag, l_hno3g, l_so2g, l_hclg, l_nh3g, &
-                mdo_mambox, mdo_gaschem, mdo_cloudchem,&
+                mdo_mambox, mdo_gaschem, mdo_cloudchem, mdo_coldstart, &
                 mdo_gasaerexch, mdo_rename, mdo_newnuc, mdo_coag
 
         use modal_aero_amicphys, only :&
@@ -1646,15 +1640,15 @@ SUBROUTINE MAM_cold_start (physta,nstop,deltat)
 ! namelist variable
 !
       integer  :: mam_dt, mam_nstep
-      real(r8) :: temp, press, RH_CLEA
+      real(r8) :: temp, press,rh_clea 
       real(r8),  dimension(:), allocatable  :: numc, mfso4, mfpom, mfsoa, mfbc, & 
                                     mfdst, mfncl, mfno3, mfnh4, mfco3, mfca, mfcl
       real(r8)  ::          qso2, qh2so4, qsoag,qhno3,qnh3,qhcl
 
       namelist /time_input/ mam_dt, mam_nstep
-      namelist /cntl_input/mdo_mambox, mdo_gaschem, mdo_gasaerexch, &
-                            mdo_rename, mdo_newnuc, mdo_coag
-      namelist /met_input/ temp, press, RH_CLEA
+      namelist /cntl_input/mdo_mambox, mdo_gaschem, mdo_cloudchem,  mdo_gasaerexch, &
+                            mdo_rename, mdo_newnuc, mdo_coag, mdo_coldstart
+      namelist /met_input/ temp, press, rh_clea 
       namelist /chem_input/ qso2, qh2so4, qsoag, qhno3, qnh3, qhcl, &
                           numc, mfso4, mfpom, mfsoa, mfbc, mfdst, & 
                           mfncl, mfno3, mfnh4, mfco3, mfca, mfcl 
@@ -1662,15 +1656,14 @@ SUBROUTINE MAM_cold_start (physta,nstop,deltat)
 
 
         !------------------------------------------------------------------------------
-
-        !initialize gas phase and aerosol state for dev test only TEMPORARY
+       !initialize gas phase and aerosol state for dev test only TEMPORARY
         ! be aware of modal_aero_initialize_q in modal_aero_initialize_data.F90
         ! which is not called but could be usefull
        q => physta%q
        dgncur_a => physta%dgncur_a
        aircon => physta%aircon
 
-
+       
 allocate(numc(ntot_amode))
 allocate(mfso4(ntot_amode))
 allocate(mfpom(ntot_amode))
@@ -1683,12 +1676,32 @@ allocate(mfnh4(ntot_amode))
 allocate(mfco3(ntot_amode))
 allocate(mfca(ntot_amode))
 allocate(mfcl(ntot_amode))
+
+
 open (UNIT = 101, FILE = 'namelist', STATUS = 'OLD')
           read (101, time_input)
           read (101, cntl_input)
           read (101, met_input)
           read (101, chem_input)
 close (101)
+!
+if (mdo_coldstart < 1) then
+  if (masterproc) then 
+          print*, 'MAM warmstart from GEOS restart file'
+          print*, 'aerosol radius initialized from default modal values'
+  end if   
+!very important even for warmstart , maybe this initialization could go to mam_driv
+   do k = 1, pver
+   do i = 1, pcols
+   do  n = 1, ntot_amode
+    dgncur_a(i,k,n) = dgnum_amode(n)
+   end do 
+   end do
+   end do
+
+   return 
+end if 
+
 
    if(mdo_mambox == 1 ) then 
       !read this only when usig boxmodel
@@ -1723,7 +1736,6 @@ if (l_hclg > 0) q(:,:,l_hclg) =   qhcl
             do  n = 1, ntot_amode
 
                 sx = log( sigmag_amode(n) )
-
                    dgncur_a(i,k,n) = dgnum_amode(n)  
                    q(i,k,numptr_amode(n)) = numc(n) / aircon(i,k) / mwdry ! .m-3 converted to .kg-1
                    if (lptr_so4_a_amode(n) > 0) tmpfso4 = mfso4(n)

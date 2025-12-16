@@ -361,7 +361,8 @@ CONTAINS
              IF ( Input_Opt%LSSALT ) THEN
 
 #ifndef APM
-                ! ISORROPIA/HETP take Na+, Cl- into account
+#ifndef MOSAIC_SPECIES
+             ! ISORROPIA/HETP take Na+, Cl- into account
                 CALL Do_ATE( Input_Opt  = Input_Opt,                 &
                              State_Chm  = State_Chm,                 &
                              State_Diag = State_Diag,                &
@@ -375,6 +376,7 @@ CONTAINS
                    CALL GC_Error( ErrMsg, RC, ThisLoc )
                    RETURN
                 ENDIF
+#endif
 #endif
 
              ELSE

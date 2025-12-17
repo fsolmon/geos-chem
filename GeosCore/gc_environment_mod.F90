@@ -506,6 +506,19 @@ CONTAINS
        ENDIF
     ENDIF
 
+    !=======================================================================
+    ! Initialize "aerosol_mod.F90" (move here for dry-run)
+    !=======================================================================
+    IF ( Input_Opt%ITS_A_FULLCHEM_SIM .or. &
+         Input_Opt%ITS_AN_AEROSOL_SIM ) THEN
+       CALL Init_Aerosol( Input_Opt, State_Chm, State_Diag, State_Grid, RC )
+       IF ( RC /= GC_SUCCESS ) THEN
+          ErrMsg = 'Error encountered in "Init_Aerosol"!'
+          CALL GC_Error( ErrMsg, RC, ThisLoc )
+          RETURN
+       ENDIF
+    ENDIF
+
     ! Exit for dry-run simulations
     IF ( Input_Opt%DryRun ) RETURN
 
@@ -607,19 +620,6 @@ CONTAINS
        ENDIF
     ENDIF
 
-    !-----------------------------------------------------------------
-    ! Initialize "aerosol_mod.F90"
-    !-----------------------------------------------------------------
-    IF ( Input_Opt%ITS_A_FULLCHEM_SIM .or. &
-         Input_Opt%ITS_AN_AEROSOL_SIM ) THEN
-       CALL Init_Aerosol( Input_Opt, State_Chm, State_Diag, State_Grid, RC )
-       IF ( RC /= GC_SUCCESS ) THEN
-          ErrMsg = 'Error encountered in "Init_Aerosol"!'
-          CALL GC_Error( ErrMsg, RC, ThisLoc )
-          RETURN
-       ENDIF
-    ENDIF
-
 ! FAB MAM initialization , to be refined if ifdef / flags 
     IF ( Input_Opt%ITS_A_FULLCHEM_SIM  ) THEN
        CALL MAM_INIT( Input_Opt, State_Chm, State_Diag, State_Grid, RC )
@@ -629,7 +629,6 @@ CONTAINS
           RETURN
        ENDIF
     ENDIF
-
 
     !=================================================================
     ! Initialize simulation modules here

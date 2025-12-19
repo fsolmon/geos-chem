@@ -1601,7 +1601,7 @@ end do
 
         END SUBROUTINE MAM_ALLOCATE
 
-SUBROUTINE MAM_cold_start (physta,nstop,deltat)
+SUBROUTINE MAM_cold_start (physta,nstop,deltat,rhmin,rhmax,tmin,tmax)
 !
 !rewritten FAB
         use physconst, only: pi, mwdry,r_universal 
@@ -1609,20 +1609,23 @@ SUBROUTINE MAM_cold_start (physta,nstop,deltat)
                 l_h2so4g, l_soag, l_hno3g, l_so2g, l_hclg, l_nh3g, &
                 mdo_mambox, mdo_gaschem, mdo_cloudchem, mdo_coldstart, &
                 mdo_gasaerexch, mdo_rename, mdo_newnuc, mdo_coag
-
+        use chem_mods, only : adv_mass,imozart
         use modal_aero_amicphys, only :&
                    dens_aer, iaer_bc, iaer_pom, iaer_so4, iaer_soa, iaer_ncl, &
                    iaer_mom, iaer_dst, iaer_co3, iaer_nh4, iaer_no3, iaer_ca, iaer_cl 
-
+        use wv_saturation, only: qsat, gestbl
         use modal_aero_data
         use physics_types, only : physics_state
         type(physics_state),  intent(in) :: physta   
 
         integer, intent(out), optional :: nstop
-        real(r8), intent(out), optional :: deltat
+        real(r8), intent(out), optional :: deltat, rhmin,rhmax,tmin,tmax
 
 
 !local 
+       real(r8) :: ev_sat(pcols,pver)
+       real(r8) :: qv_sat(pcols,pver)
+
         real(r8) :: tmpfso4, tmpfnh4, tmpfsoa, tmpfpom, &
                     tmpfbc, tmpfncl, tmpfdst, tmpfmom
         real(r8) :: tmpfno3, tmpfcl, tmpfca, tmpfco3, tmpfna
@@ -1633,14 +1636,14 @@ SUBROUTINE MAM_cold_start (physta,nstop,deltat)
         real(r8), pointer :: q(:,:,:), aircon(:,:), dgncur_a(:,:,:)
 
 
-        integer :: i,k,n
+        integer :: i,k,n,loffset
 
 
         !
 ! namelist variable
 !
       integer  :: mam_dt, mam_nstep
-      real(r8) :: temp, press,rh_clea 
+      real(r8) :: temp, press, RH_CLEA,mtmin,mtmax,mrhmin,mrhmax
       real(r8),  dimension(:), allocatable  :: numc, mfso4, mfpom, mfsoa, mfbc, & 
                                     mfdst, mfncl, mfno3, mfnh4, mfco3, mfca, mfcl
       real(r8)  ::          qso2, qh2so4, qsoag,qhno3,qnh3,qhcl
@@ -1648,7 +1651,7 @@ SUBROUTINE MAM_cold_start (physta,nstop,deltat)
       namelist /time_input/ mam_dt, mam_nstep
       namelist /cntl_input/mdo_mambox, mdo_gaschem, mdo_cloudchem,  mdo_gasaerexch, &
                             mdo_rename, mdo_newnuc, mdo_coag, mdo_coldstart
-      namelist /met_input/ temp, press, rh_clea 
+      namelist /met_input/ press, rh_clea, mrhmin, mrhmax, mtmin,mtmax
       namelist /chem_input/ qso2, qh2so4, qsoag, qhno3, qnh3, qhcl, &
                           numc, mfso4, mfpom, mfsoa, mfbc, mfdst, & 
                           mfncl, mfno3, mfnh4, mfco3, mfca, mfcl 
@@ -1703,30 +1706,33 @@ if (mdo_coldstart < 1) then
 end if 
 
 
-   if(mdo_mambox == 1 ) then 
-      !read this only when usig boxmodel
-      !! time step 
-      deltat              = mam_dt * 1._r8
-      nstop               = mam_nstep
+  if(mdo_mambox == 1 ) then 
+!! time step 
+   if(present(deltat)) deltat = mam_dt * 1._r8
+   if(present(nstop))  nstop = mam_nstep
+   if(present(rhmin))  rhmin = mrhmin
+   if(present(rhmax))  rhmax = mrhmax
+   if(present(tmin))  tmin  = mtmin
+   if(present(tmax))  tmax  = mtmax
 
-      physta%pmid(:,:)           = press
-      physta%t(:,:)              = temp
-      physta%relhum(:,:)         = RH_CLEA
-      physta%pblh(:)             = 1.1e3_r8
-      physta%zm(:,:)             = 3.0e3_r8
-      physta%aircon(:,:)         = physta%pmid(:,:)/(r_universal*physta%t(:,:))
-      physta%cld         = 0.5_r8
+   physta%pmid(:,:)           = press
+   physta%t(:,:)              = mtmin
+   physta%relhum(:,:)         = mrhmax
+   physta%pblh(:)             = 1.1e3_r8
+   physta%zm(:,:)             = 3.0e3_r8
+   physta%aircon(:,:)         = physta%pmid(:,:)/(r_universal*physta%t(:,:))
+   physta%cld         = 0.5_r8
 
   end if 
 
+loffset = imozart -1
 ! initialize the gas mixing ratio
-if (l_so2g > 0) q(:,:,l_so2g)   = qso2
-if (l_soag > 0) q(:,:,l_soag)   = qsoag
-if (l_h2so4g > 0)  q(:,:,l_h2so4g) = qh2so4
-if (l_hno3g> 0) q(:,:,l_hno3g) =   qhno3
-if (l_nh3g > 0) q(:,:,l_nh3g) =   qnh3
-if (l_hclg > 0) q(:,:,l_hclg) =   qhcl
-
+if (l_so2g > 0) q(:,:,l_so2g)   = qso2/adv_mass(l_so2g - loffset)*mwdry*1E-9
+if (l_soag > 0) q(:,:,l_soag)   = qsoag/adv_mass(l_soag - loffset)*mwdry*1E-9
+if (l_h2so4g > 0)  q(:,:,l_h2so4g) = qh2so4/adv_mass(l_h2so4g - loffset)*mwdry*1E-9
+if (l_hno3g> 0) q(:,:,l_hno3g) =   qhno3/adv_mass(l_hno3g - loffset)*mwdry*1E-9
+if (l_nh3g > 0) q(:,:,l_nh3g) =   qnh3/adv_mass(l_nh3g - loffset)*mwdry*1E-9
+if (l_hclg > 0) q(:,:,l_hclg) =   qhcl/adv_mass(l_hclg - loffset)*mwdry*1E-9
 
 
 ! initialize the aerosol/number mixing ratio for cold start.
@@ -1737,7 +1743,11 @@ if (l_hclg > 0) q(:,:,l_hclg) =   qhcl
 
                 sx = log( sigmag_amode(n) )
                    dgncur_a(i,k,n) = dgnum_amode(n)  
-                   q(i,k,numptr_amode(n)) = numc(n) / aircon(i,k) / mwdry ! .m-3 converted to .kg-1
+                   !
+                   q(i,k,numptr_amode(n)) = numc(n) *1.E6/ aircon(i,k) / mwdry ! #.cm-3 converted to #.kg-1
+                   q(i,k,numptr_amode(n)) =  q(i,k,numptr_amode(n)) * aircon(i,k)/aircon(i,1) !vertical weights 
+                   ! this is to create a constant number mixing ratio( while concentration decrase with density)
+                                      
                    if (lptr_so4_a_amode(n) > 0) tmpfso4 = mfso4(n)
                    if (lptr_pom_a_amode(n) > 0) tmpfpom = mfpom(n)
                    if (lptr_soa_a_amode(n) > 0) tmpfsoa = mfsoa(n)

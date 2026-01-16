@@ -407,7 +407,7 @@ CALL load_pbuf( pbuf, lchnk, pcols, &
           DO s =1, nmamgc  
             Spc(mamgc(s)%gcind)%Conc(I,J,L) = physta%q(n,l,mamgc(s)%mamind) &
                                             * State_Met%AD(I,J,L)
-            if( Spc(mamgc(s)%gcind)%Conc(I,J,L) < 0) then
+            if( Spc(mamgc(s)%gcind)%Conc(I,J,L) < 0_fp) then
                print*, I,J,L , 'FAB stop ',  mamgc(s)%gcind  
                stop
             end if         
@@ -526,7 +526,7 @@ END IF
      ! call MAM aerosol update for gravitational settling (this call could be somewhere else )        
      CALL  MAM_SETTL( Input_Opt,  State_Chm, State_Diag, &
                           State_Grid, State_Met, RC )
-
+   
                 
 !Fill out MAM diags (cf Headers/state_diag)    
 
@@ -1074,8 +1074,11 @@ SUBROUTINE load_pbuf( pbuf, lchnk, ncol,  &
           ENDDO
           DO L = 1, State_Grid%NZ
                 Spc(mamgc(n)%gcind)%Conc(I,J,L) = TC(L)
-                if  (Spc(mamgc(n)%gcind)%Conc(I,J,L) < 0 ) print*, 'in SETTL' ,I,J,L , mamgc(n)%gcind
-          ENDDO
+                if  (Spc(mamgc(n)%gcind)%Conc(I,J,L) < 0_fp ) then 
+                        print*, 'stop in SETTL' ,I,J,L , mamgc(n)%gcind
+                        STOP 
+                end if        
+         ENDDO
 
        ENDDO  ! MAMGC species (transported MAM species) 
        ENDDO  ! I-loop

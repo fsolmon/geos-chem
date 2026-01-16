@@ -774,7 +774,6 @@ CONTAINS
                    ! Add to species array
                    State_Chm%Species(N)%Conc(I,J,L) = &
                          State_Chm%Species(N)%Conc(I,J,L) + FLUX
-              if(   State_Chm%Species(N)%Conc(I,J,L)<0. .and. State_Chm%SpcData(N)%Info%name == 'MAMCO33')  print*, 'in mixing',State_Chm%Species(N)%Conc(I,J,L), FLUX 
                 ENDIF
              ENDIF
 
@@ -789,6 +788,8 @@ CONTAINS
                 ! (but especially for MAMCO33 it seems) some exotic vertical gradients and some pb 
                 ! in column processes like convtran, etc , resulting in neg val specifically detected here ...     
                 ! In any case , check the occurence of this WARNING in simulation log file
+                ! UPDATE : FIXED an INSTABILITY SOURCE  IN VDIFF CHECK IF THE WRANING still OCCURS
+                ! consider removing if not. 
                 Print*, 'WARNING: Negative concentration for MAM species ',    &
                             TRIM( SpcInfo%Name), ' at (I,J,L) = ', I, J, L
                 print*, 'Resetting conc. to very small  '
@@ -816,6 +817,7 @@ CONTAINS
              ENDIF
 
           ENDDO !L
+   
        ENDDO !J
        ENDDO !I
 !$OMP END PARALLEL DO

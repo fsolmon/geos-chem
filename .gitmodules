@@ -1,3 +1,6 @@
 [submodule "KPP/standalone"]
 	path = KPP/standalone
 	url = https://github.com/geoschem/KPP-Standalone
+[submodule "MAM"]
+	path = MAM
+	url = https://github.com/fsolmon/MAMLIB.git

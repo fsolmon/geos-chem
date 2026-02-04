@@ -54,6 +54,12 @@ MODULE Mam_container_Mod
    
      REAL(fp), POINTER :: nu(:,:,:) ! mam number concentration 
 
+     ! Per-mode SW optical properties (all bands).
+     ! 4th dimension is nswbands; the mode index is the GCMAM array subscript.
+     REAL(fp), POINTER :: tauxar(:,:,:,:) ! (NX,NY,NZ,NSWBANDS) aerosol optical depth
+     REAL(fp), POINTER :: ssa   (:,:,:,:) ! (NX,NY,NZ,NSWBANDS) single-scattering albedo
+     REAL(fp), POINTER :: g     (:,:,:,:) ! (NX,NY,NZ,NSWBANDS) asymmetry parameter
+
      LOGICAL           :: lso4, lbc, lpom, lsoa, lsslt, ldust
      LOGICAL           :: lnh4, lno3, lca, lco3, lcl, lmom
 
@@ -113,7 +119,7 @@ CONTAINS
 !
     CHARACTER(LEN=255) :: errMsg, thisLoc
     INTEGER            :: NX, NY, NZ, n, s
-
+    integer, parameter :: nswbands= 14 ! It has to match exactly the RRTMG , think about making this cleaner
     !======================================================================
     ! Init_AerMass_Container starts here
     !======================================================================
@@ -213,6 +219,34 @@ CONTAINS
        RETURN
     ENDIF
     GCMAM(n)%aerwat = 0._fp ! default needs to be fixes for first time step
+    
+    ! Per-mode SW optical properties (all bands)
+    ALLOCATE( GCMAM(n)%tauxar( NX, NY, NZ, NSWBANDS ), STAT=RC )
+    CALL GC_CheckVar( 'TAUXAR', 0, RC )
+    IF ( RC /= GC_SUCCESS ) THEN
+       errMsg = 'Error allocating array TAUXAR!'
+       CALL GC_Error( errMsg, RC, thisLoc )
+       RETURN
+    ENDIF
+    GCMAM(n)%tauxar = 0._fp
+
+    ALLOCATE( GCMAM(n)%ssa( NX, NY, NZ, NSWBANDS ), STAT=RC )
+    CALL GC_CheckVar( 'SSA', 0, RC )
+    IF ( RC /= GC_SUCCESS ) THEN
+       errMsg = 'Error allocating array SSA!'
+       CALL GC_Error( errMsg, RC, thisLoc )
+       RETURN
+    ENDIF
+    GCMAM(n)%ssa = 1._fp
+
+    ALLOCATE( GCMAM(n)%g( NX, NY, NZ, NSWBANDS ), STAT=RC )
+    CALL GC_CheckVar( 'G', 0, RC )
+    IF ( RC /= GC_SUCCESS ) THEN
+       errMsg = 'Error allocating array G!'
+       CALL GC_Error( errMsg, RC, thisLoc )
+       RETURN
+    ENDIF
+    GCMAM(n)%g = 0.5_fp
     
     
 ! now define the mass concentration per mode. They will be used for diagnostics and for 
@@ -539,6 +573,27 @@ CONTAINS
        CALL GC_CheckVar( 'MAM%nu', 2, RC )
        IF ( RC /= GC_SUCCESS ) RETURN
        GCMAM(n)%nu => NULL()
+     ENDIF
+
+     IF ( ASSOCIATED(GCMAM(n)%tauxar ) ) THEN
+       DEALLOCATE( GCMAM(n)%tauxar, STAT=RC )
+       CALL GC_CheckVar( 'MAM%tauxar', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%tauxar => NULL()
+     ENDIF
+
+     IF ( ASSOCIATED(GCMAM(n)%ssa ) ) THEN
+       DEALLOCATE( GCMAM(n)%ssa, STAT=RC )
+       CALL GC_CheckVar( 'MAM%ssa', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%ssa => NULL()
+     ENDIF
+
+     IF ( ASSOCIATED(GCMAM(n)%g ) ) THEN
+       DEALLOCATE( GCMAM(n)%g, STAT=RC )
+       CALL GC_CheckVar( 'MAM%g', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%g => NULL()
      ENDIF
 
     END DO 

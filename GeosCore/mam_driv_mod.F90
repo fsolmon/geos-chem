@@ -21,7 +21,7 @@ USE physics_buffer, only: physics_buffer_desc
 USE physics_types, only : physics_state, physics_ptend
 USE mam_utils, only : masterproc, pcols, pver, l_h2so4g, l_soag, l_hno3g, l_hclg, l_nh3g
 USE constituents, only : pcnst
-
+use radconstants, only : nswbands, nlwbands
 !
 IMPLICIT NONE
 
@@ -115,7 +115,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
                          mdo_gaschem, mdo_cloudchem,  mdo_gasaerexch,     mdo_rename,          &
                          mdo_newnuc,  mdo_coag           
     USE chem_mods, only: adv_mass, gas_pcnst, imozart
-    USE physconst, only: mwdry
+    USE physconst, only: mwdry, rga
     USE modal_aero_data, only: numptr_amode, lptr_so4_a_amode, &
                                lptr_bc_a_amode, lptr_nacl_a_amode,&
                                lptr_pom_a_amode, lptr_soa_a_amode,&
@@ -128,7 +128,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     USE modal_aero_calcsize, only: modal_aero_calcsize_sub
     USE modal_aero_wateruptake, only: modal_aero_wateruptake_dr
     USE modal_aero_amicphys, only: modal_aero_amicphys_intr
-
+    use mam_opt , only : mam_aero_sw, mamoptdiag
     !
 ! !INPUT PARAMETERS:
 !
@@ -166,8 +166,16 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       REAL(r8) :: vmr_svbb(pcols,pver,gas_pcnst) ! temp save before cloud chem
       REAL(r8) :: vmrcw_svbb(pcols,pver,gas_pcnst)!temp save before cloud chem 
       REAL(r8) :: aircon(pcols,pver) !  air concentration (kmol/m3)
+      real(r8)  :: tauxar(pcols,pver,nswbands)  ! aerosol extinction optical depth
+      real(r8)  :: wa(pcols,pver,nswbands)      ! aerosol single scattering albedo * tau
+      real(r8)  :: ga(pcols,pver,nswbands)      ! aerosol asymmetry parameter * wa
+      real(r8)  :: fa(pcols,pver,nswbands)      ! aerosol forward scattered fraction * ga
+
+
       INTEGER :: latndx(pcols),lonndx(pcols)                 !required by the mam interface
                                                 !not used now potentiall usefull for diags 
+
+                                          
       CHARACTER(len=8) :: spcnam
 !--------------------------------------------------------------------------
 
@@ -194,6 +202,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       n = J + (I-1)*State_Grid%NY 
       physta%t(n,L) = State_Met%T(I,J,L)
       physta%pdel(n,l) = State_Met%DELP(I,J,L) * 100.0e+0_f8 ! hPa to Pa 
+      physta%pdeldry(n,l) = State_Met%DELP_DRY(I,J,L) * 100.0e+0_f8 !
       physta%pmid(n,l) = State_Met%PMID(I,J,L) * 100.0e+0_f8
       physta%cld(n,l)= State_Met%CLDF(I,J,L)
       physta%relhum(n,l)= State_Met%RH(I,J,L)
@@ -396,7 +405,12 @@ CALL load_pbuf( pbuf, lchnk, pcols, &
          physta%q(    1:pcols,1:pver,l)  = vmr(  1:pcols,1:pver,l2) * adv_mass(l2)/mwdry 
          physta%qqcw( 1:pcols,1:pver,l)  = vmrcw(1:pcols,1:pver,l2) * adv_mass(l2)/mwdry
       END DO
-
+! 
+! calculate optical properties 
+      IF(.true.) then 
+       call  mam_aero_sw(physta, tauxar, wa, ga, fa, mamoptdiag)
+      
+      end if 
 ! Update GC/MAM species 
      DO L = 1, State_Grid%NZ
      DO J = 1, State_Grid%NY
@@ -407,10 +421,6 @@ CALL load_pbuf( pbuf, lchnk, pcols, &
           DO s =1, nmamgc  
             Spc(mamgc(s)%gcind)%Conc(I,J,L) = physta%q(n,l,mamgc(s)%mamind) &
                                             * State_Met%AD(I,J,L)
-            if( Spc(mamgc(s)%gcind)%Conc(I,J,L) < 0_fp) then
-               print*, I,J,L , 'FAB stop ',  mamgc(s)%gcind  
-               stop
-            end if         
           END DO
         ELSE  ! there is a cloud-borne state
             DO s =1, nmamgc                                  
@@ -515,6 +525,12 @@ IF(1==1) THEN
 
         IF(lptr_mom_a_amode(m) > 0 ) State_Chm%GCMAM(m)%mom(I,J,L) =                &
                                physta%q(n,L,lptr_mom_a_amode(m))*State_Met%AIRDEN(I,J,L)  
+
+! optics                  
+        State_Chm%GCMAM(m)%tauxar(I,J,L,:) = mamoptdiag(m)%tauxar(n,L,:)
+        State_Chm%GCMAM(m)%ssa(I,J,L,:) = mamoptdiag(m)%ssa(n,L,:)
+        State_Chm%GCMAM(m)%g(I,J,L,:) = mamoptdiag(m)%g(n,L,:)        
+                 
       END DO 
      ENDDO
      ENDDO
@@ -566,7 +582,7 @@ SUBROUTINE MAM_INIT( Input_Opt, State_Chm,  State_Diag, State_Grid, RC )
                                lptr_mom_a_amode 
 
     USE modal_aero_initialize_data, only: MAM_init_basics, MAM_ALLOCATE
-
+    USE mam_opt, only: mam_init_opt
     ! !INPUT PARAMETERS:
 !
     TYPE(OptInput), INTENT(IN)    :: Input_Opt   ! Input Options object
@@ -624,6 +640,11 @@ CALL MAM_init_basics(pbuf)
 
 !allocate MAM state object
 CALL MAM_ALLOCATE (physta,ptend )
+
+! allocate and init OPTICS
+
+CALL MAM_INIT_OPT()
+
 
 !allocate specific GC diqg usefull for mam  
 ALLOCATE( PSO4AQ_RATE(State_Grid%NX,State_Grid%NY,State_Grid%NZ) )
@@ -1074,11 +1095,7 @@ SUBROUTINE load_pbuf( pbuf, lchnk, ncol,  &
           ENDDO
           DO L = 1, State_Grid%NZ
                 Spc(mamgc(n)%gcind)%Conc(I,J,L) = TC(L)
-                if  (Spc(mamgc(n)%gcind)%Conc(I,J,L) < 0_fp ) then 
-                        print*, 'stop in SETTL' ,I,J,L , mamgc(n)%gcind
-                        STOP 
-                end if        
-         ENDDO
+          ENDDO
 
        ENDDO  ! MAMGC species (transported MAM species) 
        ENDDO  ! I-loop
@@ -1263,7 +1280,28 @@ USE Input_Opt_Mod,  ONLY : OptInput
                State_Diag%Mamhygro(I,J,L) + State_Chm%GCMAM(m)%hygro(I,J,L)
        END DO
        ENDIF
-   
+! aerosol optical properties 
+     
+        ! modal 
+      IF ( State_Diag%Archive_MamTauxarv ) THEN
+          DO m = 1, size(State_Chm%GCMAM)
+            IF (State_Diag%Map_MamTauxarv%id2slot(m) > 0)  &
+            State_Diag%MamTauxarv(I,J,L,m) = State_Chm%GCMAM(m)%tauxar(I,J,L,10) !visible band  
+           END DO
+      ENDIF
+      IF ( State_Diag%Archive_Mamssav ) THEN
+          DO m = 1, size(State_Chm%GCMAM)
+            IF (State_Diag%Map_Mamssav%id2slot(m) > 0)  &
+            State_Diag%Mamssav(I,J,L,m) = State_Chm%GCMAM(m)%ssa(I,J,L,10) !visible band  
+           END DO
+      ENDIF
+      IF ( State_Diag%Archive_Mamgv ) THEN
+          DO m = 1, size(State_Chm%GCMAM)
+            IF (State_Diag%Map_Mamgv%id2slot(m) > 0)  &
+            State_Diag%Mamgv(I,J,L,m) = State_Chm%GCMAM(m)%g(I,J,L,10) !visible band  
+           END DO
+      ENDIF
+
    ENDDO
    ENDDO
    ENDDO

@@ -559,6 +559,9 @@ LOGICAL                     :: Archive_MAM
      REAL(f4),           POINTER :: Mamdryrad(:,:,:)
      REAL(f4),           POINTER :: Mamhygro(:,:,:)
      REAL(f4),           POINTER :: MamNu(:,:,:,:)
+     REAL(f4),           POINTER :: MamTauxarv(:,:,:,:)
+     REAL(f4),           POINTER :: MamSsav(:,:,:,:)
+     REAL(f4),           POINTER :: MamGv(:,:,:,:)
      TYPE(DgnMap),       POINTER :: Map_MamSO4mass
      TYPE(DgnMap),       POINTER :: Map_MamBCmass
      TYPE(DgnMap),       POINTER :: Map_MamPOMmass
@@ -576,6 +579,9 @@ LOGICAL                     :: Archive_MAM
      TYPE(DgnMap),       POINTER :: Map_Mamdryrad
      TYPE(DgnMap),       POINTER :: Map_Mamhygro
      TYPE(DgnMap),       POINTER :: Map_MamNu
+     TYPE(DgnMap),       POINTER :: Map_MamTauxarv
+     TYPE(DgnMap),       POINTER :: Map_MamSsav
+     TYPE(DgnMap),       POINTER :: Map_MamGv
      LOGICAL                     :: Archive_MamSO4mass
      LOGICAL                     :: Archive_MamBCmass
      LOGICAL                     :: Archive_MamPOMmass
@@ -593,6 +599,9 @@ LOGICAL                     :: Archive_MAM
      LOGICAL                     :: Archive_Mamdryrad
      LOGICAL                     :: Archive_Mamhygro
      LOGICAL                     :: Archive_MamNu
+     LOGICAL                     :: Archive_MamTauxarv
+     LOGICAL                     :: Archive_MamSsav
+     LOGICAL                     :: Archive_MamGv
 #endif
 
      !%%%%% Aerosol optical depths %%%%%
@@ -2064,6 +2073,9 @@ CONTAINS
     State_Diag%Mamdryrad                       => NULL()
     State_Diag%Mamhygro                        => NULL()
     State_Diag%MamNu                           => NULL()
+    State_Diag%MamTauxarv                      => NULL()
+    State_Diag%MamSsav                         => NULL()
+    State_Diag%MamGv                           => NULL()
     State_Diag%Map_MamSO4mass                  => NULL()
     State_Diag%Map_MamBCmass                   => NULL()
     State_Diag%Map_MamPOMmass                  => NULL()
@@ -2081,6 +2093,9 @@ CONTAINS
     State_Diag%Map_Mamdryrad                   => NULL()
     State_Diag%Map_Mamhygro                    => NULL()
     State_Diag%Map_MamNu                       => NULL()
+    State_Diag%Map_MamTauxarv                  => NULL()
+    State_Diag%Map_MamSsav                     => NULL()
+    State_Diag%Map_MamGv                       => NULL()
     State_Diag%Archive_MamSO4mass              = .FALSE.
     State_Diag%Archive_MamBCmass               = .FALSE.
     State_Diag%Archive_MamPOMmass              = .FALSE.
@@ -2098,6 +2113,9 @@ CONTAINS
     State_Diag%Archive_Mamdryrad               = .FALSE.
     State_Diag%Archive_Mamhygro                = .FALSE.
     State_Diag%Archive_MamNu                   = .FALSE.
+    State_Diag%Archive_MamTauxarv              = .FALSE.
+    State_Diag%Archive_MamSsav                 = .FALSE.
+    State_Diag%Archive_MamGv                   = .FALSE.
 #endif
     !%%%%% Aerosol optical depth diagnostics %%%%%
     State_Diag%AODDust                             => NULL()
@@ -8857,6 +8875,51 @@ CONTAINS
             diagId         = diagId,                                         &
             diagFlag       = 'M',                                            &
             RC             = RC                                             )
+
+       diagID  = 'MamTauxarv'
+       CALL Init_and_Register(                                               &
+            Input_Opt      = Input_Opt,                                      &
+            State_Chm      = State_Chm,                                      &
+            State_Diag     = State_Diag,                                     &
+            State_Grid     = State_Grid,                                     &
+            DiagList       = Diag_List,                                      &
+            TaggedDiagList = TaggedDiag_List,                                &
+            Ptr2Data       = State_Diag%MamTauxarv,                          &
+            archiveData    = State_Diag%Archive_MamTauxarv,                  &
+            mapData        = State_Diag%Map_MamTauxarv,                      &
+            diagId         = diagId,                                         &
+            diagFlag       = 'M',                                            &
+            RC             = RC                                             )
+
+       diagID  = 'MamSsav'
+       CALL Init_and_Register(                                               &
+            Input_Opt      = Input_Opt,                                      &
+            State_Chm      = State_Chm,                                      &
+            State_Diag     = State_Diag,                                     &
+            State_Grid     = State_Grid,                                     &
+            DiagList       = Diag_List,                                      &
+            TaggedDiagList = TaggedDiag_List,                                &
+            Ptr2Data       = State_Diag%MamSsav,                             &
+            archiveData    = State_Diag%Archive_MamSsav,                     &
+            mapData        = State_Diag%Map_MamSsav,                         &
+            diagId         = diagId,                                         &
+            diagFlag       = 'M',                                            &
+            RC             = RC                                             )
+
+       diagID  = 'MamGv'
+       CALL Init_and_Register(                                               &
+            Input_Opt      = Input_Opt,                                      &
+            State_Chm      = State_Chm,                                      &
+            State_Diag     = State_Diag,                                     &
+            State_Grid     = State_Grid,                                     &
+            DiagList       = Diag_List,                                      &
+            TaggedDiagList = TaggedDiag_List,                                &
+            Ptr2Data       = State_Diag%MamGv,                               &
+            archiveData    = State_Diag%Archive_MamGv,                       &
+            mapData        = State_Diag%Map_MamGv,                           &
+            diagId         = diagId,                                         &
+            diagFlag       = 'M',                                            &
+            RC             = RC                                             )
     
 #endif
        !--------------------------------------------------------------------
@@ -12751,7 +12814,10 @@ CONTAINS
                                  State_Diag%Archive_Mamwetrad            .or. &
                                  State_Diag%Archive_Mamdryrad            .or. &
                                  State_Diag%Archive_Mamhygro             .or. &
-                                 State_Diag%Archive_MamNu     )
+                                 State_Diag%Archive_MamNu                .or. &
+                                 State_Diag%Archive_MamTauxarv           .or. &
+                                 State_Diag%Archive_MamSsav              .or. &
+                                 State_Diag%Archive_MamGv     )
 #endif
     State_Diag%Archive_AOD  = ( State_Diag%Archive_AODHygWL1            .or. &
                                 State_Diag%Archive_AODHygWL2            .or. &
@@ -13902,6 +13968,24 @@ IF ( RC /= GC_SUCCESS ) RETURN
              CALL Finalize( diagId   = 'MamNu',                             &
                    Ptr2Data = State_Diag%MamNu,                    &
                    mapData  = State_Diag%Map_MamNu,                &
+                   RC       = RC                                            )
+    IF ( RC /= GC_SUCCESS ) RETURN
+
+             CALL Finalize( diagId   = 'MamTauxarv',                        &
+                   Ptr2Data = State_Diag%MamTauxarv,               &
+                   mapData  = State_Diag%Map_MamTauxarv,           &
+                   RC       = RC                                            )
+    IF ( RC /= GC_SUCCESS ) RETURN
+
+             CALL Finalize( diagId   = 'MamSsav',                           &
+                   Ptr2Data = State_Diag%MamSsav,                  &
+                   mapData  = State_Diag%Map_MamSsav,              &
+                   RC       = RC                                            )
+    IF ( RC /= GC_SUCCESS ) RETURN
+
+             CALL Finalize( diagId   = 'MamGv',                             &
+                   Ptr2Data = State_Diag%MamGv,                    &
+                   mapData  = State_Diag%Map_MamGv,                &
                    RC       = RC                                            )
     IF ( RC /= GC_SUCCESS ) RETURN
 
@@ -16679,6 +16763,24 @@ IF ( RC /= GC_SUCCESS ) RETURN
        IF ( isDesc    ) Desc  = 'Mode number of aerosol'
        IF ( isUnits   ) Units = '# m-3'
        IF ( isRank    ) Rank  = 3 
+       IF ( isTagged  ) TagId = 'MAMMODE'
+
+   ELSE IF ( TRIM( Name_AllCaps ) == 'MAMTAUXARV' ) THEN
+       IF ( isDesc    ) Desc  = 'Per-mode aerosol optical depth'
+       IF ( isUnits   ) Units = '1'
+       IF ( isRank    ) Rank  = 3
+       IF ( isTagged  ) TagId = 'MAMMODE'
+
+   ELSE IF ( TRIM( Name_AllCaps ) == 'MAMSSAV' ) THEN
+       IF ( isDesc    ) Desc  = 'Per-mode aerosol single-scattering albedo'
+       IF ( isUnits   ) Units = '1'
+       IF ( isRank    ) Rank  = 3
+       IF ( isTagged  ) TagId = 'MAMMODE'
+
+   ELSE IF ( TRIM( Name_AllCaps ) == 'MAMGV' ) THEN
+       IF ( isDesc    ) Desc  = 'Per-mode aerosol asymmetry parameter'
+       IF ( isUnits   ) Units = '1'
+       IF ( isRank    ) Rank  = 3
        IF ( isTagged  ) TagId = 'MAMMODE'
 #endif
     ELSE IF ( TRIM( Name_AllCaps ) == 'BETANO' ) THEN

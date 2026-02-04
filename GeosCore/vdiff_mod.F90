@@ -371,7 +371,6 @@ CONTAINS
           DO I = 1, plonl
              qp1(I,L,M) = Conc(I,lat,L_REVERSE)
              qp0(I,L,M) = Conc(I,lat,L_REVERSE)
-             if (qp0(I,L,M) < 0._fp ) print*, 'FAB BLEME QP0 VDIFF !!',I,L,M, qp0(I,L,M)
           ENDDO
        ENDDO
 
@@ -767,8 +766,6 @@ CONTAINS
     DO M = 1, nspcmix
     DO L = 1, plev
     DO I = 1, plonl
-      !FAB 
-      if (qp1(I,plev-L+1,M) < 0._fp) print*,'BLEME vdiff',I,plev-L+1,M 
       State_Chm%Species(M)%Conc(I,lat,L) = qp1(I,plev-L+1,M)
     ENDDO
     ENDDO
@@ -1901,17 +1898,6 @@ CONTAINS
        CALL DEBUG_MSG( '### VDIFFDR: before vdiff' )
     ENDIF
 
-    DO J = 1, State_Grid%NY
-     DO I = 1, State_Grid%NX
-     DO L = 1, State_Grid%NZ
-     if (State_Chm%Species(295)%Conc(I,J,L) < 0) then
-          print*, 'FAB JUST AVANT VDIFF  print col', I,J,L, State_Chm%Species(295)%Conc(I,J,:)
-          stop
-         end if
-     END DO
-     END DO
-     END DO
-
     !$OMP PARALLEL DO       &
     !$OMP DEFAULT( SHARED ) &
     !$OMP PRIVATE( J, EC  )
@@ -1927,17 +1913,6 @@ CONTAINS
                    ustar_arg=p_ustar, RC=EC                                   )
     ENDDO
     !$OMP END PARALLEL DO
-
-     DO J = 1, State_Grid%NY
-     DO I = 1, State_Grid%NX
-     DO L = 1, State_Grid%NZ
-     if (State_Chm%Species(295)%Conc(I,J,L) < 0) then
-          print*, 'FAB VDIFF  print col', I,J,L, State_Chm%Species(295)%Conc(I,J,:)
-          stop
-         end if
-     END DO
-     END DO
-     END DO
 
     !### Debug
     IF ( Input_Opt%Verbose ) THEN

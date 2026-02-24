@@ -29,7 +29,7 @@ PRIVATE
 
 !PUBLIC MEMBER FUNCTIONS:
 
-PUBLIC :: MAM_DRIV, MAM_INIT, MAM_APPLY_RAINOUT_EFF 
+PUBLIC :: MAM_DRIV, MAM_INIT, MAM_APPLY_RAINOUT_EFF, MAM_OPT_to_RRTMG 
 
 ! !REMARKS:
 !  The MAM model was designed and developed for implementation into GEOS-Chem
@@ -111,8 +111,8 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     USE State_Diag_Mod, ONLY : DgnState
     USE UnitConv_Mod,   ONLY : Check_Units 
 
-    USE mam_utils, only: begchunk, endrun, mdo_coldstart,                            & 
-                         mdo_gaschem, mdo_cloudchem,  mdo_gasaerexch,     mdo_rename,          &
+    USE mam_utils, only: begchunk, endrun,  mdo_coldstart, & 
+                         mdo_gaschem, mdo_cloudchem,  mdo_gasaerexch,mdo_rename,          &
                          mdo_newnuc,  mdo_coag           
     USE chem_mods, only: adv_mass, gas_pcnst, imozart
     USE physconst, only: mwdry, rga
@@ -126,7 +126,8 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
                                modeptr_accum, alnsg_amode, voltonumb_amode
     USE modal_aero_initialize_data, only: MAM_cold_start 
     USE modal_aero_calcsize, only: modal_aero_calcsize_sub
-    USE modal_aero_wateruptake, only: modal_aero_wateruptake_dr
+    USE modal_aero_wateruptake, only: modal_aero_wateruptake_dr, &
+                                      load_pbuf, unload_pbuf
     USE modal_aero_amicphys, only: modal_aero_amicphys_intr
     use mam_opt , only : mam_aero_sw, mamoptdiag
     !
@@ -715,177 +716,6 @@ END DO
 END SUBROUTINE MAM_INIT        
 
 
-!-------------------------------------------------------------------------------
-SUBROUTINE load_pbuf( pbuf, lchnk, ncol,  &
-         cld, qqcw, dgncur_a, dgncur_awet, qaerwat, wetdens,hygro)
-
-
-      USE mam_utils, only: pcols,pver
-      USE constituents, only : pcnst
-      USE chem_mods, only: adv_mass, gas_pcnst, imozart
-      USE physconst, only: mwdry
-
-      USE modal_aero_data, only:  &
-         lmassptrcw_amode, nspec_amode, numptrcw_amode, &
-         qqcw_get_field, ntot_amode
-
-      USE physics_buffer, only: physics_buffer_desc, &
-         pbuf_get_index, pbuf_get_field
-
-      TYPE(physics_buffer_desc), pointer :: pbuf(:)  ! physics buffer for a chunk
-
-      INTEGER,  intent(in   ) :: lchnk, ncol
-
-      REAL(r8), intent(in   ) :: cld(pcols,pver)    ! stratiform cloud fraction
-      REAL(r8), intent(in   ) :: qqcw(pcols,pver,pcnst)  ! Cloudborne aerosol MR array
-      REAL(r8), intent(in   ) :: dgncur_a(pcols,pver,ntot_amode)
-      REAL(r8), intent(in   ) :: dgncur_awet(pcols,pver,ntot_amode)
-      REAL(r8), intent(in   ) :: qaerwat(pcols,pver,ntot_amode)
-      REAL(r8), intent(in   ) :: wetdens(pcols,pver,ntot_amode)
-      REAL(r8), intent(in   ) :: hygro(pcols,pver,ntot_amode)
-      INTEGER :: idx, l, ll, n
-
-      REAL(r8), pointer :: fldcw(:,:)
-      REAL(r8), pointer :: ycld(:,:)
-      REAL(r8), pointer :: ydgnum(:,:,:)
-      REAL(r8), pointer :: ydgnumwet(:,:,:)
-      REAL(r8), pointer :: yqaerwat(:,:,:)
-      REAL(r8), pointer :: ywetdens(:,:,:)
-      REAL(r8), pointer :: yhygro(:,:,:)
- 
-
- ! FAB ncol = pcols , maybe getrif of it   
-      idx = pbuf_get_index( 'CLD' )
-      CALL pbuf_get_field( pbuf, idx, ycld )
-      ycld(:,:) = 0.0e+0_f8
-      ycld(1:ncol,:) = cld(1:ncol,:)
-      
-      idx = pbuf_get_index( 'DGNUM' )
-      CALL pbuf_get_field( pbuf, idx, ydgnum )
-      ydgnum(:,:,:) = 0.0e+0_f8
-      ydgnum(1:ncol,:,:) = dgncur_a(1:ncol,:,:)
-      
-      idx = pbuf_get_index( 'DGNUMWET' )
-      CALL pbuf_get_field( pbuf, idx, ydgnumwet )
-      ydgnumwet(:,:,:) = 0.0e+0_f8
-      ydgnumwet(1:ncol,:,:) = dgncur_awet(1:ncol,:,:)
-      
-      idx = pbuf_get_index( 'QAERWAT' )
-      CALL pbuf_get_field( pbuf, idx, yqaerwat )
-      yqaerwat(:,:,:) = 0.0e+0_f8
-      yqaerwat(1:ncol,:,:) = qaerwat(1:ncol,:,:)
-      
-      idx = pbuf_get_index( 'WETDENS_AP' )
-      CALL pbuf_get_field( pbuf, idx, ywetdens )
-      ywetdens(:,:,:) = 0.0e+0_f8
-      ywetdens(1:ncol,:,:) = wetdens(1:ncol,:,:)
-      
-      idx = pbuf_get_index( 'HYGROM' )
-      CALL pbuf_get_field( pbuf, idx, yhygro )
-      yhygro(:,:,:) = 0.0e+0_f8
-      yhygro(1:ncol,:,:) = hygro(1:ncol,:,:)
-
-      DO n = 1, ntot_amode
-      DO ll = 0, nspec_amode(n)
-         l = numptrcw_amode(n)
-         IF (ll > 0) l = lmassptrcw_amode(ll,n)
-         fldcw => qqcw_get_field( pbuf, l, lchnk )
-         fldcw(:,:) = 0.0e+0_f8
-         fldcw(1:ncol,:) = qqcw(1:ncol,:,l)
-      END DO
-      END DO
-
-
-      RETURN
-      END SUBROUTINE load_pbuf
-
-
-!-------------------------------------------------------------------------------
-      SUBROUTINE unload_pbuf( pbuf, lchnk, ncol, &
-         cld, qqcw, dgncur_a, dgncur_awet, qaerwat, wetdens,hygro )
-
-      USE mam_utils, only: pcols,pver
-      USE constituents, only : pcnst
-      USE chem_mods, only: adv_mass, gas_pcnst, imozart
-      USE physconst, only: mwdry
-
-      USE modal_aero_data, only:  &
-         lmassptrcw_amode, nspec_amode, numptrcw_amode, &
-         qqcw_get_field, ntot_amode
-
-      USE physics_buffer, only: physics_buffer_desc, &
-         pbuf_get_index, pbuf_get_field
-
-      TYPE(physics_buffer_desc), pointer :: pbuf(:)  ! physics buffer for a chunk
-
-      INTEGER,  intent(in   ) :: lchnk, ncol
-
-      REAL(r8), intent(in   ) :: cld(pcols,pver)    ! stratiform cloud fraction
-
-      REAL(r8), intent(inout) :: qqcw(pcols,pver,pcnst)  ! Cloudborne aerosol MR array
-      REAL(r8), intent(inout) :: dgncur_a(pcols,pver,ntot_amode)
-      REAL(r8), intent(inout) :: dgncur_awet(pcols,pver,ntot_amode)
-      REAL(r8), intent(inout) :: qaerwat(pcols,pver,ntot_amode)
-      REAL(r8), intent(inout) :: wetdens(pcols,pver,ntot_amode)
-      REAL(r8), intent(inout) :: hygro(pcols,pver,ntot_amode)
-
-      INTEGER :: i, idx, k, l, ll, n
-      REAL(r8) :: tmpa
-
-      REAL(r8), pointer :: fldcw(:,:)
-      REAL(r8), pointer :: ycld(:,:)
-      REAL(r8), pointer :: ydgnum(:,:,:)
-      REAL(r8), pointer :: ydgnumwet(:,:,:)
-      REAL(r8), pointer :: yqaerwat(:,:,:)
-      REAL(r8), pointer :: ywetdens(:,:,:)
-      REAL(r8), pointer :: yhygro(:,:,:)
-
-
-      idx = pbuf_get_index( 'CLD' )
-      CALL pbuf_get_field( pbuf, idx, ycld )
-! cld should not have changed, so check for changes rather than unloading it
-!     cld(1:ncol,:) = ycld(1:ncol,:)
-      tmpa = maxval( abs( cld(1:ncol,:) - ycld(1:ncol,:) ) )
-      IF (tmpa /= 0.0e+0_f8) then
-         write(*,*) '*** unload_pbuf cld change error - ', tmpa
-         stop
-      END IF
-
-      idx = pbuf_get_index( 'DGNUM' )
-      CALL pbuf_get_field( pbuf, idx, ydgnum )
-      dgncur_a(1:ncol,:,:) = ydgnum(1:ncol,:,:)
-
-      idx = pbuf_get_index( 'DGNUMWET' )
-      CALL pbuf_get_field( pbuf, idx, ydgnumwet )
-      dgncur_awet(1:ncol,:,:) = ydgnumwet(1:ncol,:,:)
-
-      idx = pbuf_get_index( 'QAERWAT' )
-      CALL pbuf_get_field( pbuf, idx, yqaerwat )
-      qaerwat(1:ncol,:,:) = yqaerwat(1:ncol,:,:)
-
-      idx = pbuf_get_index( 'WETDENS_AP' )
-      CALL pbuf_get_field( pbuf, idx, ywetdens )
-      wetdens(1:ncol,:,:) = ywetdens(1:ncol,:,:)
-
-      idx = pbuf_get_index( 'HYGROM' )
-      CALL pbuf_get_field( pbuf, idx, yhygro )
-      hygro(1:ncol,:,:) = yhygro(1:ncol,:,:)
-
-
-      DO n = 1, ntot_amode
-      DO ll = 0, nspec_amode(n)
-         l = numptrcw_amode(n)
-         IF (ll > 0) l = lmassptrcw_amode(ll,n)
-         fldcw => qqcw_get_field( pbuf, l, lchnk )
-         qqcw(1:ncol,:,l) = fldcw(1:ncol,:)
-      END DO
-      END DO
-
-
-      RETURN
-      END SUBROUTINE unload_pbuf
-
-!---------------------------------------------------------------------
 
 !------------------------------------------------------------------------------
 !                  GEOS-Chem Global Chemical Transport Model                  !
@@ -1402,8 +1232,258 @@ END SUBROUTINE Set_MAM_Diagnostic
 
   END SUBROUTINE MAM_APPLY_RAINOUT_EFF
 
+SUBROUTINE MAM_OPT_to_RRTMG( Input_Opt,  State_Chm,  State_Diag, &
+                                State_Grid)
 
+    USE State_Chm_Mod,  ONLY : ChmState
+    USE State_Diag_Mod, ONLY : DgnState
+    USE State_Grid_Mod, ONLY : GrdState
+    USE Input_Opt_Mod,  ONLY : OptInput
+    USE mam_opt,        ONLY : mamoptdiag
+    USE radconstants,   ONLY : nswbands, nlwbands
+    USE physconst,      ONLY : rga
+    USE precision_mod,  ONLY : f8
 
-END MODULE MAM_DRIV_MOD
+    ! =========================================================================
+    ! Arguments
+    ! =========================================================================
+    TYPE(OptInput), INTENT(IN)    :: Input_Opt
+    TYPE(GrdState), INTENT(IN)    :: State_Grid
+    TYPE(ChmState), INTENT(INOUT) :: State_Chm
+    TYPE(DgnState), INTENT(INOUT) :: State_Diag
 
+    ! =========================================================================
+    ! FAB : Here is the tricky part : MAM Species index mapping in RRTMG RTODAER,SSA,ASY  
+    ! MAM species must be consistent with GC RRTMG standard aerosol species ordering and aggregation 
+    ! see SPECMASK in rrtmg_rad_transfer. Here we calculate and pass directly the MAM modal mean 
+    ! of each relevant species to the RT tables. To avoid multiple count in rrtmg_rad_trnsfer 
+    ! when standard species are aggregated ( e.g 7 bins of dust,2 bins of SSALT, etc), we just 
+    ! fill one of the index with MAM values and zero out the others.  
+    ! Again see  SPECMASK definition  in rrtmg_rad_transfer.  
+    ! =========================================================================
+    !RTXX, MASK, IS index     MAM speices ( averaged over modes) 
+    !  = 1                    ! Sulfate
+    !  = 2                    ! Nitrate    (MOSAIC_SPECIES only)
+    !  = 3                    ! Ammonium   (MOSAIC_SPECIES only)
+    !  = 4                    ! Black carbon
+    !  = 5                    ! Organic aerosol (here POM + SOA [+ MOM], revisit this equivalence)
+    !  = 6-7                  ! Sea salt : only 6 filled
+    !  = 10-16                ! Dust: only 10 filled
+    !indices 8,9 corresponds to stratospheric aerosol : need more thoughts on that 
+    !for now zeroed. Rq: MAM is active in stratosphere.  
+    ! =========================================================================
+    ! Local variables
+    ! =========================================================================
+    REAL(f8), POINTER :: RTODAER   (:,:,:,:,:)
+    REAL(f8), POINTER :: RTSSAER   (:,:,:,:,:)
+    REAL(f8), POINTER :: RTASYMAER (:,:,:,:,:)
+
+    INTEGER  :: NBNDS, IB, IBX, IB_SW  
+    INTEGER  :: I, J, L, n, m, nmodes
+
+    ! Accumulators for bulk optical properties across modes (tau, tau*ssa, tau*ssa*g)
+    ! Using explicit variables rather than filling RTODAER directly so we can
+    ! normalise SSA and g correctly before storing.
+    REAL(f8) :: tau_s, wa_s, ga_s     ! extinction, single-scatter, asymmetry accumulators
+    REAL(f8) :: EXT_MIN               ! small number to avoid divide-by-zero
+
+    PARAMETER ( EXT_MIN = 1.0e-40_f8 )
+
+    ! =========================================================================
+    ! Set up pointers and dimensions
+    ! =========================================================================
+    NBNDS  = nswbands + nlwbands   ! must match RRTMG configuration
+
+    RTODAER    => State_Chm%Phot%RTODAER
+    RTSSAER    => State_Chm%Phot%RTSSAER
+    RTASYMAER  => State_Chm%Phot%RTASYMAER
+
+    nmodes = SIZE( mamoptdiag )
+
+    ! =========================================================================
+    ! Loop over all RRTMG bands (LW first, then SW — skip LW here)
+    ! =========================================================================
+    DO IB = 1, NBNDS
+
+       ! RRTMG waveband slots start after NWVAA0 standard wavelengths in GC arrays
+       IBX = IB + State_Chm%Phot%NWVAA0
+
+       IF ( IB > nlwbands ) THEN
+
+          ! SW band index into mamoptdiag arrays (1-based)
+          IB_SW = IB - nlwbands
+
+          !$OMP PARALLEL DO                 &
+          !$OMP DEFAULT( SHARED )           &
+          !$OMP PRIVATE( I, J, L, n, m,    &
+          !$OMP          tau_s, wa_s, ga_s )&
+          !$OMP SCHEDULE( DYNAMIC )
+          DO L = 1, State_Grid%NZ
+          DO J = 1, State_Grid%NY
+          DO I = 1, State_Grid%NX
+             ! zero out all aerosol species in RT tables 
+             RTODAER  (I,J,L,IBX,1:State_Chm%Phot%NASPECRAD) =  0.0_f8 
+             RTSSAER  (I,J,L,IBX,1:State_Chm%Phot%NASPECRAD) =  0.0_f8
+             RTASYMAER(I,J,L,IBX,1:State_Chm%Phot%NASPECRAD) =  0.0_f8
+
+             ! Linear column index used by mamoptdiag (pcols ordering)
+             n = J + ( I - 1 ) * State_Grid%NY
+             ! In order to use the existing GC/RRTMG interface, 
+             ! Rad. Species are expected in the exact same order as set in
+             ! Set_SpecMask from the GeosCore/rrtm_rad_transfer_mode.F90  
+             ! ==============================================================
+             ! IS = 1 : Sulfate
+             ! ==============================================================
+             tau_s = 0.0_f8 ;  wa_s = 0.0_f8 ;  ga_s = 0.0_f8
+             DO m = 1, nmodes
+                tau_s = tau_s + mamoptdiag(m)%vext_sulfate(n,L,IB_SW)
+                wa_s  = wa_s  + mamoptdiag(m)%vext_sulfate(n,L,IB_SW) &
+                                * mamoptdiag(m)%vssa_sulfate(n,L,IB_SW)
+                ga_s  = ga_s  + mamoptdiag(m)%vext_sulfate(n,L,IB_SW) &
+                                * mamoptdiag(m)%vssa_sulfate(n,L,IB_SW) &
+                                * mamoptdiag(m)%vasm_sulfate(n,L,IB_SW)
+             END DO
+             ! Convert specific extinction (m2/kg air) -> AOD for the layer
+             RTODAER  (I,J,L,IBX,1) = tau_s * physta%pdeldry(n,L) * rga
+             RTSSAER  (I,J,L,IBX,1) = wa_s  / MAX( tau_s, EXT_MIN )
+             RTASYMAER(I,J,L,IBX,1) = ga_s  / MAX( wa_s,  EXT_MIN )
+
+#if ( ( defined MODAL_AERO_4MODE_MOM ) && ( defined MOSAIC_SPECIES ) )
+             ! =============================================================
+             ! IS = 2 : Nitrate  (MOSAIC_SPECIES only)
+             ! =============================================================
+             tau_s = 0.0_f8 ;  wa_s = 0.0_f8 ;  ga_s = 0.0_f8
+             DO m = 1, nmodes
+                tau_s = tau_s + mamoptdiag(m)%vext_no3(n,L,IB_SW)
+                wa_s  = wa_s  + mamoptdiag(m)%vext_no3(n,L,IB_SW) &
+                                * mamoptdiag(m)%vssa_no3(n,L,IB_SW)
+                ga_s  = ga_s  + mamoptdiag(m)%vext_no3(n,L,IB_SW) &
+                                * mamoptdiag(m)%vssa_no3(n,L,IB_SW) &
+                                * mamoptdiag(m)%vasm_no3(n,L,IB_SW)
+             END DO
+             RTODAER  (I,J,L,IBX,2) = tau_s * physta%pdeldry(n,L) * rga
+             RTSSAER  (I,J,L,IBX,2) = wa_s  / MAX( tau_s, EXT_MIN )
+             RTASYMAER(I,J,L,IBX,2) = ga_s  / MAX( wa_s,  EXT_MIN )
+
+             ! =============================================================
+             ! IS = 3 : Ammonium  (MOSAIC_SPECIES only)
+             ! =============================================================
+             tau_s = 0.0_f8 ;  wa_s = 0.0_f8 ;  ga_s = 0.0_f8
+             DO m = 1, nmodes
+                tau_s = tau_s + mamoptdiag(m)%vext_nh4(n,L,IB_SW)
+                wa_s  = wa_s  + mamoptdiag(m)%vext_nh4(n,L,IB_SW) &
+                                * mamoptdiag(m)%vssa_nh4(n,L,IB_SW)
+                ga_s  = ga_s  + mamoptdiag(m)%vext_nh4(n,L,IB_SW) &
+                                * mamoptdiag(m)%vssa_nh4(n,L,IB_SW) &
+                                * mamoptdiag(m)%vasm_nh4(n,L,IB_SW)
+             END DO
+             RTODAER  (I,J,L,IBX,3) = tau_s * physta%pdeldry(n,L) * rga
+             RTSSAER  (I,J,L,IBX,3) = wa_s  / MAX( tau_s, EXT_MIN )
+             RTASYMAER(I,J,L,IBX,3) = ga_s  / MAX( wa_s,  EXT_MIN )
+#else
+             ! Without MOSAIC_SPECIES, zero out NO3 and NH4 slots
+             RTODAER  (I,J,L,IBX,3) = 0.0_f8
+             RTSSAER  (I,J,L,IBX,3) = 0.0_f8
+             RTASYMAER(I,J,L,IBX,3) = 0.0_f8
+             RTODAER  (I,J,L,IBX,2) = 0.0_f8
+             RTSSAER  (I,J,L,IBX,2) = 0.0_f8
+             RTASYMAER(I,J,L,IBX,2) = 0.0_f8
+#endif
+
+             ! =============================================================
+             ! IS = 4 : Black Carbon
+             ! =============================================================
+             tau_s = 0.0_f8 ;  wa_s = 0.0_f8 ;  ga_s = 0.0_f8
+             DO m = 1, nmodes
+                tau_s = tau_s + mamoptdiag(m)%vext_bc(n,L,IB_SW)
+                wa_s  = wa_s  + mamoptdiag(m)%vext_bc(n,L,IB_SW) &
+                                * mamoptdiag(m)%vssa_bc(n,L,IB_SW)
+                ga_s  = ga_s  + mamoptdiag(m)%vext_bc(n,L,IB_SW) &
+                                * mamoptdiag(m)%vssa_bc(n,L,IB_SW) &
+                                * mamoptdiag(m)%vasm_bc(n,L,IB_SW)
+             END DO
+             RTODAER  (I,J,L,IBX,4) = tau_s * physta%pdeldry(n,L) * rga
+             RTSSAER  (I,J,L,IBX,4) = wa_s  / MAX( tau_s, EXT_MIN )
+             RTASYMAER(I,J,L,IBX,4) = ga_s  / MAX( wa_s,  EXT_MIN )
+
+             ! =============================================================
+             ! IS = 5 : Organic Aerosol  (POM + SOA + MOM if available)
+             ! All sub-types are aggregated before normalization so that the
+             ! bulk SSA and g are extinction-weighted correctly.
+             ! =============================================================
+             tau_s = 0.0_f8 ;  wa_s = 0.0_f8 ;  ga_s = 0.0_f8
+             DO m = 1, nmodes
+                ! POM
+                tau_s = tau_s + mamoptdiag(m)%vext_pom(n,L,IB_SW)
+                wa_s  = wa_s  + mamoptdiag(m)%vext_pom(n,L,IB_SW) &
+                                * mamoptdiag(m)%vssa_pom(n,L,IB_SW)
+                ga_s  = ga_s  + mamoptdiag(m)%vext_pom(n,L,IB_SW) &
+                                * mamoptdiag(m)%vssa_pom(n,L,IB_SW) &
+                                * mamoptdiag(m)%vasm_pom(n,L,IB_SW)
+                ! SOA
+                tau_s = tau_s + mamoptdiag(m)%vext_soa(n,L,IB_SW)
+                wa_s  = wa_s  + mamoptdiag(m)%vext_soa(n,L,IB_SW) &
+                                * mamoptdiag(m)%vssa_soa(n,L,IB_SW)
+                ga_s  = ga_s  + mamoptdiag(m)%vext_soa(n,L,IB_SW) &
+                                * mamoptdiag(m)%vssa_soa(n,L,IB_SW) &
+                                * mamoptdiag(m)%vasm_soa(n,L,IB_SW)
+                ! MOM (marine organic matter) 
+                tau_s = tau_s + mamoptdiag(m)%vext_mom(n,L,IB_SW)
+                wa_s  = wa_s  + mamoptdiag(m)%vext_mom(n,L,IB_SW) &
+                                * mamoptdiag(m)%vssa_mom(n,L,IB_SW)
+                ga_s  = ga_s  + mamoptdiag(m)%vext_mom(n,L,IB_SW) &
+                                * mamoptdiag(m)%vssa_mom(n,L,IB_SW) &
+                                * mamoptdiag(m)%vasm_mom(n,L,IB_SW)
+             END DO
+             RTODAER  (I,J,L,IBX,5) = tau_s * physta%pdeldry(n,L) * rga
+             RTSSAER  (I,J,L,IBX,5) = wa_s  / MAX( tau_s, EXT_MIN )
+             RTASYMAER(I,J,L,IBX,5) = ga_s  / MAX( wa_s,  EXT_MIN )
+
+             ! =============================================================
+             ! IS = 6-7 : Sea Salt- only 6 is filled
+             ! =============================================================
+             tau_s = 0.0_f8 ;  wa_s = 0.0_f8 ;  ga_s = 0.0_f8
+             DO m = 1, nmodes
+                tau_s = tau_s + mamoptdiag(m)%vext_seasalt(n,L,IB_SW)
+                wa_s  = wa_s  + mamoptdiag(m)%vext_seasalt(n,L,IB_SW) &
+                                * mamoptdiag(m)%vssa_seasalt(n,L,IB_SW)
+                ga_s  = ga_s  + mamoptdiag(m)%vext_seasalt(n,L,IB_SW) &
+                                * mamoptdiag(m)%vssa_seasalt(n,L,IB_SW) &
+                                * mamoptdiag(m)%vasm_seasalt(n,L,IB_SW)
+             END DO
+             RTODAER  (I,J,L,IBX,6) = tau_s * physta%pdeldry(n,L) * rga
+             RTSSAER  (I,J,L,IBX,6) = wa_s  / MAX( tau_s, EXT_MIN )
+             RTASYMAER(I,J,L,IBX,6) = ga_s  / MAX( wa_s,  EXT_MIN )
+
+             ! =============================================================
+             ! IS = 10-16 : Dust - only 10 is filled
+             ! =============================================================
+             tau_s = 0.0_f8 ;  wa_s = 0.0_f8 ;  ga_s = 0.0_f8
+             DO m = 1, nmodes
+                tau_s = tau_s + mamoptdiag(m)%vext_dust(n,L,IB_SW)
+                wa_s  = wa_s  + mamoptdiag(m)%vext_dust(n,L,IB_SW) &
+                                * mamoptdiag(m)%vssa_dust(n,L,IB_SW)
+                ga_s  = ga_s  + mamoptdiag(m)%vext_dust(n,L,IB_SW) &
+                                * mamoptdiag(m)%vssa_dust(n,L,IB_SW) &
+                                * mamoptdiag(m)%vasm_dust(n,L,IB_SW)
+             END DO
+             RTODAER  (I,J,L,IBX,10) = tau_s * physta%pdeldry(n,L) * rga
+             RTSSAER  (I,J,L,IBX,10) = wa_s  / MAX( tau_s, EXT_MIN )
+             RTASYMAER(I,J,L,IBX,10) = ga_s  / MAX( wa_s,  EXT_MIN )
+
+          END DO  ! I
+          END DO  ! J
+          END DO  ! L
+          !$OMP END PARALLEL DO  ! BUG FIX: was missing
+
+       END IF  ! SW bands only
+
+    END DO  ! IB
+
+    RTODAER    => NULL()
+    RTSSAER    => NULL()
+    RTASYMAER  => NULL()
+
+  END SUBROUTINE MAM_OPT_to_RRTMG
+  END MODULE MAM_DRIV_MOD
 !FAB#endif

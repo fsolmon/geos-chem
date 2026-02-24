@@ -1362,6 +1362,8 @@ CONTAINS
                                  ( MSDENS(N) * RDAA(N,IDST,State_Chm%Phot%DRg) * 1.0e-6_fp)
 
 #ifdef RRTMG
+#if !( defined MODAL_AERO_4MODE_MOM ) 
+!FAB skip if mam is used, revisit when improving the logical  flow between aerosol options !! 
           !add dust optics to the RT code arrays
           !SSA and ASYM copying seems a little redundant...
           !will keep this way for uniformity for now but
@@ -1369,6 +1371,7 @@ CONTAINS
           RTODAER(I,J,L,IWV,NAER+2+N) = ODMDUST(I,J,L,IWV,N)
           RTSSAER(I,J,L,IWV,NAER+2+N) = SSAA(IWV,N,IDST,State_Chm%Phot%DRg)
           RTASYMAER(I,J,L,IWV,NAER+2+N) = ASYMAA(IWV,N,IDST,State_Chm%Phot%DRg)
+#endif
 #endif
 
        ENDDO

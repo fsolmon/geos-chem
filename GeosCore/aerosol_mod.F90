@@ -1060,7 +1060,10 @@ CONTAINS
     USE TIME_MOD,       ONLY : SYSTEM_TIMESTAMP
     USE UCX_MOD,        ONLY : GET_STRAT_OPT
     USE Species_Mod,    ONLY : Species
-
+!FAB
+#if defined(MODAL_AERO_4MODE_MOM)
+    USE MAM_DRIV_MOD,    ONLY  : MAM_OPT_to_RRTMG
+#endif
     IMPLICIT NONE
 !
 ! !INPUT PARAMETERS:
@@ -1816,6 +1819,7 @@ CONTAINS
              ENDIF
 
 #ifdef RRTMG
+#if !( defined(MODAL_AERO_4MODE_MOM) )
              !SNA currently treated as one with optics but considered
              !separately for RT, so we split them by mass here
              IF (N.EQ.1) THEN
@@ -1838,6 +1842,7 @@ CONTAINS
                 ENDIF
                 RTASYMAER(I,J,L,IWV,NRT)   = SCALEASY*ASYMAA(IWV,1,N,State_Chm%Phot%DRg)
              ENDIF
+#endif             
 #endif
 
              ! Only need to do hyg once, not for each wavelength
@@ -1992,6 +1997,14 @@ CONTAINS
 
        ENDDO !Loop over NAER
     ENDDO !End loop over NWVS
+
+#ifdef RRTMG
+#if ( defined(MODAL_AERO_4MODE_MOM) )    
+! should be revisited when improving logical flow between aerosol options
+   call MAM_OPT_to_RRTMG (Input_Opt,  State_Chm,  State_Diag, &
+                               State_Grid) 
+#endif
+#endif
 
     !==============================================================
     ! Account for stratospheric aerosols (SDE 04/17/13)

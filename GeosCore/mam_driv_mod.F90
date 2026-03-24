@@ -129,7 +129,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     USE modal_aero_wateruptake, only: modal_aero_wateruptake_dr, &
                                       load_pbuf, unload_pbuf
     USE modal_aero_amicphys, only: modal_aero_amicphys_intr
-    use mam_opt , only : mam_aero_sw, mamoptdiag
+    use mam_opt , only : mam_aero_sw,mam_aero_lw, mamoptdiag
     !
 ! !INPUT PARAMETERS:
 !
@@ -167,12 +167,14 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       REAL(r8) :: vmr_svbb(pcols,pver,gas_pcnst) ! temp save before cloud chem
       REAL(r8) :: vmrcw_svbb(pcols,pver,gas_pcnst)!temp save before cloud chem 
       REAL(r8) :: aircon(pcols,pver) !  air concentration (kmol/m3)
+
+      !-----FAB  this mode avg local variables could be perhaps suppressed since mamoptdiag carries the information--- 
       real(r8)  :: tauxar(pcols,pver,nswbands)  ! aerosol extinction optical depth
       real(r8)  :: wa(pcols,pver,nswbands)      ! aerosol single scattering albedo * tau
       real(r8)  :: ga(pcols,pver,nswbands)      ! aerosol asymmetry parameter * wa
       real(r8)  :: fa(pcols,pver,nswbands)      ! aerosol forward scattered fraction * ga
-
-
+      real(r8) :: taux_lw(pcols,pver,nlwbands)
+      !-------------
       INTEGER :: latndx(pcols),lonndx(pcols)                 !required by the mam interface
                                                 !not used now potentiall usefull for diags 
 
@@ -196,7 +198,6 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     physta%lchnk = lchnk
     physta%ncol  = pcols
     
-    
     DO L = 1, State_Grid%NZ
     DO J = 1, State_Grid%NY
     DO I = 1, State_Grid%NX 
@@ -206,7 +207,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       physta%pdeldry(n,l) = State_Met%DELP_DRY(I,J,L) * 100.0e+0_f8 !
       physta%pmid(n,l) = State_Met%PMID(I,J,L) * 100.0e+0_f8
       physta%cld(n,l)= State_Met%CLDF(I,J,L)
-      physta%relhum(n,l)= State_Met%RH(I,J,L)
+      physta%relhum(n,l)= State_Met%RH(I,J,L)/100.0e+0_f8 ! used actually for Optics for now , could replace mam calc..
       physta%qv(n,l) = State_Met%SPHU(I,J,L) * 1.0e-3_r8 ! in kg/kgair  Caution here make sure
       physta%zm(n,l) =  sum(State_Met%BXHEIGHT(I,J,1:l))- 0.5 * State_Met%BXHEIGHT(I,J,l)
 
@@ -410,7 +411,7 @@ CALL load_pbuf( pbuf, lchnk, pcols, &
 ! calculate optical properties 
       IF(.true.) then 
        call  mam_aero_sw(physta, tauxar, wa, ga, fa, mamoptdiag)
-      
+       call  mam_aero_lw(physta, taux_lw, mamoptdiag)      
       end if 
 ! Update GC/MAM species 
      DO L = 1, State_Grid%NZ
@@ -1231,7 +1232,6 @@ END SUBROUTINE Set_MAM_Diagnostic
      RainFrac = RainFrac * Rainouteff
 
   END SUBROUTINE MAM_APPLY_RAINOUT_EFF
-
 SUBROUTINE MAM_OPT_to_RRTMG( Input_Opt,  State_Chm,  State_Diag, &
                                 State_Grid)
 
@@ -1474,9 +1474,108 @@ SUBROUTINE MAM_OPT_to_RRTMG( Input_Opt,  State_Chm,  State_Diag, &
           END DO  ! I
           END DO  ! J
           END DO  ! L
-          !$OMP END PARALLEL DO  ! BUG FIX: was missing
+          !$OMP END PARALLEL DO  !
 
-       END IF  ! SW bands only
+       ELSE
+          ! ==================================================================
+          ! LW bands  ( IB = 1 .. nlwbands )
+          ! In the LW, RRTMG only requires absorption optical depth.
+          ! RTSSAER and RTASYMAER are zeroed; only RTODAER is filled.
+          ! vext_lw_* [m2/kg_air] = abs_lw_interp * specmmr, accumulated in
+          ! mam_aero_lw over modes.  The same pdeldry*rga conversion as SW
+          ! gives layer AOD.  Species IS-index mapping is identical to SW.
+          ! ==================================================================
+
+          !$OMP PARALLEL DO                 &
+          !$OMP DEFAULT( SHARED )           &
+          !$OMP PRIVATE( I, J, L, n, m,    &
+          !$OMP          tau_s )            &
+          !$OMP SCHEDULE( DYNAMIC )
+          DO L = 1, State_Grid%NZ
+          DO J = 1, State_Grid%NY
+          DO I = 1, State_Grid%NX
+
+             ! Zero all RT tables for this LW band (SSA/g not used in LW)
+             RTODAER  (I,J,L,IBX,1:State_Chm%Phot%NASPECRAD) = 0.0_f8
+             RTSSAER  (I,J,L,IBX,1:State_Chm%Phot%NASPECRAD) = 0.0_f8
+             RTASYMAER(I,J,L,IBX,1:State_Chm%Phot%NASPECRAD) = 0.0_f8
+
+             ! Linear column index used by mamoptdiag (pcols ordering)
+             n = J + ( I - 1 ) * State_Grid%NY
+
+             ! =============================================================
+             ! IS = 1 : Sulfate
+             ! =============================================================
+             tau_s = 0.0_f8
+             DO m = 1, nmodes
+                tau_s = tau_s + mamoptdiag(m)%vext_lw_sulfate(n,L,IB)
+             END DO
+             RTODAER(I,J,L,IBX,1) = tau_s * physta%pdeldry(n,L) * rga
+
+#if ( ( defined MODAL_AERO_4MODE_MOM ) && ( defined MOSAIC_SPECIES ) )
+             ! =============================================================
+             ! IS = 2 : Nitrate  (MOSAIC_SPECIES only)
+             ! =============================================================
+             tau_s = 0.0_f8
+             DO m = 1, nmodes
+                tau_s = tau_s + mamoptdiag(m)%vext_lw_no3(n,L,IB)
+             END DO
+             RTODAER(I,J,L,IBX,2) = tau_s * physta%pdeldry(n,L) * rga
+
+             ! =============================================================
+             ! IS = 3 : Ammonium  (MOSAIC_SPECIES only)
+             ! =============================================================
+             tau_s = 0.0_f8
+             DO m = 1, nmodes
+                tau_s = tau_s + mamoptdiag(m)%vext_lw_nh4(n,L,IB)
+             END DO
+             RTODAER(I,J,L,IBX,3) = tau_s * physta%pdeldry(n,L) * rga
+#endif
+             ! IS = 2 and 3 remain 0.0 in the non-MOSAIC case (set above)
+
+             ! =============================================================
+             ! IS = 4 : Black Carbon
+             ! =============================================================
+             tau_s = 0.0_f8
+             DO m = 1, nmodes
+                tau_s = tau_s + mamoptdiag(m)%vext_lw_bc(n,L,IB)
+             END DO
+             RTODAER(I,J,L,IBX,4) = tau_s * physta%pdeldry(n,L) * rga
+
+             ! =============================================================
+             ! IS = 5 : Organic Aerosol  (POM + SOA + MOM if available)
+             ! =============================================================
+             tau_s = 0.0_f8
+             DO m = 1, nmodes
+                tau_s = tau_s + mamoptdiag(m)%vext_lw_pom(n,L,IB) &
+                              + mamoptdiag(m)%vext_lw_soa(n,L,IB)
+                tau_s = tau_s + mamoptdiag(m)%vext_lw_mom(n,L,IB)
+             END DO
+             RTODAER(I,J,L,IBX,5) = tau_s * physta%pdeldry(n,L) * rga
+
+             ! =============================================================
+             ! IS = 6-7 : Sea Salt — only 6 is filled
+             ! =============================================================
+             tau_s = 0.0_f8
+             DO m = 1, nmodes
+                tau_s = tau_s + mamoptdiag(m)%vext_lw_seasalt(n,L,IB)
+             END DO
+             RTODAER(I,J,L,IBX,6) = tau_s * physta%pdeldry(n,L) * rga
+
+             ! =============================================================
+             ! IS = 10-16 : Dust — only 10 is filled
+             ! =============================================================
+             tau_s = 0.0_f8
+             DO m = 1, nmodes
+                tau_s = tau_s + mamoptdiag(m)%vext_lw_dust(n,L,IB)
+             END DO
+             RTODAER(I,J,L,IBX,10) = tau_s * physta%pdeldry(n,L) * rga
+
+          END DO  ! I
+          END DO  ! J
+          END DO  ! L
+          !$OMP END PARALLEL DO
+       END IF  ! SW / LW bands
 
     END DO  ! IB
 

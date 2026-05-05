@@ -36,7 +36,8 @@ MODULE Mam_container_Mod
      REAL(fp), POINTER :: nudryrad (:,:,:) !num geo mean dry radius 
      REAL(fp), POINTER :: nuwetrad (:,:,:) !------------ wet radius 
      REAL(fp), POINTER :: aerdens(:,:,:) ! aerosol effective density  
-     REAL(fp), POINTER :: hygro(:,:,:) ! aerosol hygroscopicity (volume average)   
+     REAL(fp), POINTER :: hygro(:,:,:) ! aerosol hygroscopicity (volume average)
+     REAL(fp), POINTER :: pH(:,:,:)   ! aerosol pH [-3, 14]
 
      REAL(fp), POINTER :: aerwat(:,:,:)!mam water mass concentration
      REAL(fp), POINTER :: so4(:,:,:) ! mam so4 mass concentration 
@@ -210,6 +211,15 @@ CONTAINS
        RETURN
     ENDIF
     GCMAM(n)%hygro = 0.2_fp ! default needs to be fixes for first time step
+
+    ALLOCATE( GCMAM(n)%pH( NX, NY, NZ ), STAT=RC )
+    CALL GC_CheckVar( 'PH', 0, RC )
+    IF ( RC /= GC_SUCCESS ) THEN
+       errMsg = 'Error allocating array PH!'
+       CALL GC_Error( errMsg, RC, thisLoc )
+       RETURN
+    ENDIF
+    GCMAM(n)%pH = 7._fp
 
    ALLOCATE( GCMAM(n)%aerwat( NX, NY, NZ ), STAT=RC )
     CALL GC_CheckVar( 'AERWAT', 0, RC )
@@ -475,6 +485,13 @@ CONTAINS
        CALL GC_CheckVar( 'MAM%hygro', 2, RC )
        IF ( RC /= GC_SUCCESS ) RETURN
        GCMAM(n)%hygro => NULL()
+     ENDIF
+
+     IF ( ASSOCIATED(GCMAM(n)%pH ) ) THEN
+       DEALLOCATE( GCMAM(n)%pH, STAT=RC )
+       CALL GC_CheckVar( 'MAM%pH', 2, RC )
+       IF ( RC /= GC_SUCCESS ) RETURN
+       GCMAM(n)%pH => NULL()
      ENDIF
 
      IF ( ASSOCIATED(GCMAM(n)%aerwat ) ) THEN

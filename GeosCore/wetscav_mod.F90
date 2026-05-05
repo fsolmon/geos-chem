@@ -889,18 +889,24 @@ CONTAINS
        ENDDO
 #endif
 #if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
-    ! FAB interstitial state is scavenged by convective clouds
-    ! cloud-borne state is supposed to be tied to stratiform (LS) 
-    ! cloud only. Since aerosols aere internally mixed in a given mode 
-    ! scavenging efficiency accounts  effective hygroscopicity.
-    ! For now considers that all aerosol are interstitial anyway.    
-   
-       IF(SpcInfo%MamModId > 0 ) THEN !FAB revisit .and. .not.SpcInfo%Is_CloudBorne) THEN 
+    ! FAB interstitial state is scavenged by convective clouds.
+    ! Cloud-borne state is tied to stratiform (LS) clouds only — when
+    ! cloud-borne treatment is developed, add .and. .not.SpcInfo%Is_CloudBorne here.
+    ! Scavenging fraction uses Kohler CCN activation at convective S_s=0.5%:
+    !   f_ccn = min(1, kappa/kappa_ref_conv), kappa_ref_conv=4A^3/(27*Dd^3*Ss^2)
+    ! Rewritten as kappa*27*Dd^3*Ss^2/(4A^3) to avoid a 3D temporary.
+    ! A=2.1e-9m -> 4A^3=3.7044e-26; Ss=0.005 -> Ss^2=2.5e-5.
+    ! Coarse: kappa_ref<<kappa -> f_ccn=1. Aitken: partial (kappa_ref~0.44).
+    ! Accum (Dd~200nm): kappa_ref~0.007 -> all hygroscopic species fully activate.
+       IF ( SpcInfo%MamModId > 0 ) THEN
           CALL F_AEROSOL( KC, KcScale, Input_Opt, State_Grid, State_Met, F )
-            IF ( SpcInfo%WD_AerScavEff > 0.0_fp ) THEN
-              ! F = F * SpcInfo%WD_AerScavEff ! WD_AerScavEff still used as a control 
-              F = F * State_Chm%GCMAM(SpcInfo%MamModId)%hygro
-           ENDIF
+          IF ( SpcInfo%WD_AerScavEff > 0.0_fp ) THEN
+             F = F * MIN(1.0_fp,                                                    &
+                 State_Chm%GCMAM(SpcInfo%MamModId)%hygro                           &
+                 * 27.0_fp                                                          &
+                 * (2.0_fp * State_Chm%GCMAM(SpcInfo%MamModId)%nudryrad)**3        &
+                 * 2.5e-5_fp / 3.7044e-26_fp )
+          ENDIF
        END IF
 #endif 
 
@@ -933,12 +939,17 @@ CONTAINS
        ENDDO
 #endif
 #if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
-    ! FAB apply also for number concentrations  SpcInfo%MP_SizeResNum   
-       IF(SpcInfo%MamModId > 0 ) THEN !.and. .not.SpcInfo%Is_CloudBorne) THEN
+    ! Same Kohler-based convective activation as mass block above.
+    ! Cloud-borne: add .and. .not.SpcInfo%Is_CloudBorne when developed.
+       IF ( SpcInfo%MamModId > 0 ) THEN
           CALL F_AEROSOL( KC, KcScale, Input_Opt, State_Grid, State_Met, F )
-            IF ( SpcInfo%WD_AerScavEff > 0.0_fp ) THEN
-               F = F * State_Chm%GCMAM(SpcInfo%MamModId)%hygro
-         ENDIF
+          IF ( SpcInfo%WD_AerScavEff > 0.0_fp ) THEN
+             F = F * MIN(1.0_fp,                                                    &
+                 State_Chm%GCMAM(SpcInfo%MamModId)%hygro                           &
+                 * 27.0_fp                                                          &
+                 * (2.0_fp * State_Chm%GCMAM(SpcInfo%MamModId)%nudryrad)**3        &
+                 * 2.5e-5_fp / 3.7044e-26_fp )
+          ENDIF
        END IF
 #endif 
 
@@ -1497,7 +1508,8 @@ CONTAINS
        ! This accounts for impaction scavenging of certain aerosols
 #if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM) 
        if (SpcInfo%MamModId > 0 ) then !    
-         CALL MAM_APPLY_RAINOUT_EFF(State_Chm%GCMAM(SpcInfo%MamModId)%hygro(I,J,L), &
+         CALL MAM_APPLY_RAINOUT_EFF(State_Chm%GCMAM(SpcInfo%MamModId)%hygro(I,J,L),   &
+                                     State_Chm%GCMAM(SpcInfo%MamModId)%nudryrad(I,J,L), &
                                      p_T, SpcInfo, RAINFRAC )
        else 
          CALL APPLY_RAINOUT_EFF( p_T, SpcInfo, RAINFRAC )

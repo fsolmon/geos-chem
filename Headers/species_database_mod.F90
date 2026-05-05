@@ -157,7 +157,7 @@ CONTAINS
     REAL(f4)                    :: wd_rainouteff_luo(3)
 
     ! String arrays
-    CHARACTER(LEN=18)           :: tags(68)
+    CHARACTER(LEN=18)           :: tags(69)
     CHARACTER(LEN=QFYAML_StrLen):: a_str(2)
 
     ! Objects

@@ -123,7 +123,8 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
                                lptr_nh4_a_amode,lptr_no3_a_amode,&
                                lptr_ca_a_amode,lptr_cl_a_amode,&
                                lptr_co3_a_amode,lptr_mom_a_amode,   &
-                               modeptr_accum, alnsg_amode, voltonumb_amode
+                               modeptr_accum, alnsg_amode, voltonumb_amode, &
+                               ntot_amode
     USE modal_aero_initialize_data, only: MAM_cold_start 
     USE modal_aero_calcsize, only: modal_aero_calcsize_sub
     USE modal_aero_wateruptake, only: modal_aero_wateruptake_dr, &
@@ -174,6 +175,8 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       real(r8)  :: ga(pcols,pver,nswbands)      ! aerosol asymmetry parameter * wa
       real(r8)  :: fa(pcols,pver,nswbands)      ! aerosol forward scattered fraction * ga
       real(r8) :: taux_lw(pcols,pver,nlwbands)
+      real(r8) :: relhum_loc(pcols,pver)
+      real(r8) :: pH_aer_out(pcols,pver,ntot_amode)
       !-------------
       INTEGER :: latndx(pcols),lonndx(pcols)                 !required by the mam interface
                                                 !not used now potentiall usefull for diags 
@@ -334,7 +337,8 @@ CALL load_pbuf( pbuf, lchnk, pcols, &
      CALL load_pbuf( pbuf, lchnk, pcols, &
         physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens, physta%hygro )
 !
-     CALL modal_aero_wateruptake_dr( physta, pbuf, deltat, mamstep)
+     relhum_loc = physta%relhum
+     CALL modal_aero_wateruptake_dr( physta, pbuf, deltat, mamstep, clear_rh_in = relhum_loc)
      
      CALL unload_pbuf( pbuf, lchnk, pcols, &
          physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens,physta%hygro )
@@ -359,25 +363,20 @@ CALL load_pbuf( pbuf, lchnk, pcols, &
       IF (mdo_gaschem > 0) then
         !
         l2 = l_h2so4g-loffset
-        vmr(1:pcols,1:pver,l2) = vmr(1:pcols,1:pver,l2) + physta%ph2so4(1:pcols,1:pver)*mwdry/adv_mass(l2)*deltat          
+        vmr(1:pcols,1:pver,l2) = vmr(1:pcols,1:pver,l2) + physta%ph2so4(1:pcols,1:pver)*mwdry/adv_mass(l2)*deltat
       END IF 
       vmr_svbb = vmr    ! save before cloud chem
       vmrcw_svbb = vmrcw! save before cloud chem
 
 !CLOUDCHEM
-!rq vmrcw / qcw are not advected in MAM /CESM   
+!rq vmrcw / qcw are not advected in MAM /CESM
 
-      IF (mdo_cloudchem > 0) then
-        !start by updating mass in the accumulation mode 
-        !(consider partitioning with aitken )
+      IF (mdo_cloudchem > 0 .and. is_cbsim) then
+        !updating sulfate from aq.chem mass in the cb accumulation mode
+        
         l2 = lptr_so4_cw_amode(modeptr_accum) - loffset
-        IF (is_cbsim) then
-          vmrcw(1:pcols,1:pver,l2) = vmrcw(1:pcols,1:pver,l2) +  & 
+        vmrcw(1:pcols,1:pver,l2) = vmrcw(1:pcols,1:pver,l2) +  &
                                    physta%paqso4(1:pcols,1:pver)*mwdry/adv_mass(l2)*deltat
-        ELSE  ! consider all aersol intersticial
-          vmr(1:pcols,1:pver,l2) = vmr(1:pcols,1:pver,l2) +  &
-                                   physta%paqso4(1:pcols,1:pver)*mwdry/adv_mass(l2)*deltat
-        END IF        
       END IF
 
 !------------------------------
@@ -397,9 +396,20 @@ CALL load_pbuf( pbuf, lchnk, pcols, &
 !         nqtendbb,           nqqcwtendbb,         &  ! ifdef cambox not enabled for now  
 !         dvmrdt_bb,          dvmrcwdt_bb,         &  ! in the interface maybe conssider for diag
          physta%dgncur_a,     physta%dgncur_awet,  &
-         physta%wetdens,      physta%qaerwat              )
+         physta%wetdens,      physta%qaerwat,             &
+         pH_aer_out = pH_aer_out                          )
     END IF
-! vmr and vmrcw have been updated in modal_aero_amicphys_intr  
+! vmr and vmrcw have been updated in modal_aero_amicphys_intr
+
+! if not cb_sim, apply aqueous SO4 production after gas-aerosol exchange so it does not
+! feed into condensation/renaming/nucleation (it was produced in cloud droplets,
+! not in the interstitial phase)
+      IF (mdo_cloudchem > 0 .and. .not. is_cbsim) then
+        l2 = lptr_so4_a_amode(modeptr_accum) - loffset
+        vmr(1:pcols,1:pver,l2) = vmr(1:pcols,1:pver,l2) +  &
+                                 physta%paqso4(1:pcols,1:pver)*mwdry/adv_mass(l2)*deltat
+      END IF
+
 ! switch back from vmr & vmrcw to q & qqcw state
 !
       DO l = imozart, pcnst
@@ -489,10 +499,11 @@ IF(1==1) THEN
                                 physta%q(n,L,numptr_amode(m))*State_Met%AIRDEN(I,J,L)
         ! modal mass concentrations in Kg.m-3  
         IF(lptr_so4_a_amode(m) > 0 ) State_Chm%GCMAM(m)%so4(I,J,L) =              & 
-                                physta%q(n,L,lptr_so4_a_amode(m))*State_Met%AIRDEN(I,J,L) + &  
+                                physta%q(n,L,lptr_so4_a_amode(m))*State_Met%AIRDEN(I,J,L)
+        ! + &  
         !FAB TEMP add the cloud borne sulf to chm state for diag // change that once 
         ! transfer from qqcw to q is properly trated !!
-                                physta%qqcw(n,L,lptr_so4_a_amode(m))*State_Met%AIRDEN(I,J,L)    
+        ! physta%qqcw(n,L,lptr_so4_a_amode(m))*State_Met%AIRDEN(I,J,L)    
 
          
         IF(lptr_bc_a_amode(m) > 0 ) State_Chm%GCMAM(m)%bc(I,J,L) =              &
@@ -528,12 +539,14 @@ IF(1==1) THEN
         IF(lptr_mom_a_amode(m) > 0 ) State_Chm%GCMAM(m)%mom(I,J,L) =                &
                                physta%q(n,L,lptr_mom_a_amode(m))*State_Met%AIRDEN(I,J,L)  
 
-! optics                  
+! optics
         State_Chm%GCMAM(m)%tauxar(I,J,L,:) = mamoptdiag(m)%tauxar(n,L,:)
         State_Chm%GCMAM(m)%ssa(I,J,L,:) = mamoptdiag(m)%ssa(n,L,:)
-        State_Chm%GCMAM(m)%g(I,J,L,:) = mamoptdiag(m)%g(n,L,:)        
-                 
-      END DO 
+        State_Chm%GCMAM(m)%g(I,J,L,:) = mamoptdiag(m)%g(n,L,:)
+
+        State_Chm%GCMAM(m)%pH(I,J,L) = pH_aer_out(n,L,m)
+
+      END DO
      ENDDO
      ENDDO
      ENDDO
@@ -968,7 +981,7 @@ USE Input_Opt_Mod,  ONLY : OptInput
 !
     ! SAVEd scalars
     ! Scalars
-    INTEGER                  :: I, J, L, M
+    INTEGER                  :: I, J, L, M, iSlot
     ! Strings
     CHARACTER(LEN=255)       :: ThisLoc
     CHARACTER(LEN=512)       :: ErrMsg
@@ -980,156 +993,168 @@ USE Input_Opt_Mod,  ONLY : OptInput
     ThisLoc  = ' -> at Set_AerMass_Diagnostic (in module GeosCore/aerosol_mod.F90)'
     !$OMP PARALLEL DO         &
     !$OMP DEFAULT( SHARED   ) &
-    !$OMP PRIVATE( I, J, L  )
+    !$OMP PRIVATE( I, J, L, M, iSlot )
     DO L = 1, State_Grid%NZ
     DO J = 1, State_Grid%NY
     DO I = 1, State_Grid%NX
 ! Start with state_chm%GCMAM diag     
     
-! modal 
+! modal
       IF ( State_Diag%Archive_MamNu ) THEN
           DO m = 1, size(State_Chm%GCMAM)
-            IF (State_Diag%Map_MamNu%id2slot(m) > 0)  &
-            State_Diag%MamNu(I,J,L,m) = State_Chm%GCMAM(m)%Nu(I,J,L) * 1.0e-6_fp !#m-3 to #cm-3
+            iSlot = State_Diag%Map_MamNu%id2slot(m)
+            IF (iSlot > 0)  &
+            State_Diag%MamNu(I,J,L,iSlot) = State_Chm%GCMAM(m)%Nu(I,J,L) * 1.0e-6_fp !#m-3 to #cm-3
            END DO
       ENDIF
-!now everything is set up to have modal species concentration diag as well 
+!now everything is set up to have modal species concentration diag as well
 !total concentrations
       IF ( State_Diag%Archive_MamSO4Mass ) THEN
-           State_Diag%MamSO4Mass(I,J,L) = 0.
            DO m = 1, size(State_Chm%GCMAM)
-               IF (State_Chm%GCMAM(m)%lso4)   State_Diag%MamSO4Mass(I,J,L) = &
-                   State_Diag%MamSO4Mass(I,J,L) + State_Chm%GCMAM(m)%so4(I,J,L) * kgm3_to_ugm3
+               iSlot = State_Diag%Map_MamSO4Mass%id2slot(m)
+               IF (iSlot > 0 .AND. State_Chm%GCMAM(m)%lso4) &
+                   State_Diag%MamSO4Mass(I,J,L,iSlot) = State_Chm%GCMAM(m)%so4(I,J,L) * kgm3_to_ugm3
            END DO
       ENDIF
       IF ( State_Diag%Archive_MamBCMass ) THEN
-           State_Diag%MamBCMass(I,J,L) = 0.
            DO m = 1, size(State_Chm%GCMAM)
-               IF (State_Chm%GCMAM(m)%lbc)    State_Diag%MamBCMass(I,J,L) = &
-                   State_Diag%MamBCMass(I,J,L) + State_Chm%GCMAM(m)%bc(I,J,L) * kgm3_to_ugm3
+               iSlot = State_Diag%Map_MamBCMass%id2slot(m)
+               IF (iSlot > 0 .AND. State_Chm%GCMAM(m)%lbc) &
+                   State_Diag%MamBCMass(I,J,L,iSlot) = State_Chm%GCMAM(m)%bc(I,J,L) * kgm3_to_ugm3
            END DO
       ENDIF
       IF ( State_Diag%Archive_MamPOMMass ) THEN
-           State_Diag%MamPOMMass(I,J,L) = 0.
            DO m = 1, size(State_Chm%GCMAM)
-               IF (State_Chm%GCMAM(m)%lpom)   State_Diag%MamPOMMass(I,J,L) = &
-                   State_Diag%MamPOMMass(I,J,L) + State_Chm%GCMAM(m)%pom(I,J,L) * kgm3_to_ugm3
+               iSlot = State_Diag%Map_MamPOMMass%id2slot(m)
+               IF (iSlot > 0 .AND. State_Chm%GCMAM(m)%lpom) &
+                   State_Diag%MamPOMMass(I,J,L,iSlot) = State_Chm%GCMAM(m)%pom(I,J,L) * kgm3_to_ugm3
            END DO
       ENDIF
       IF ( State_Diag%Archive_MamSOAMass ) THEN
-           State_Diag%MamSOAMass(I,J,L) = 0.
            DO m = 1, size(State_Chm%GCMAM)
-               IF (State_Chm%GCMAM(m)%lsoa)  State_Diag%MamSOAMass(I,J,L) = &
-                   State_Diag%MamSOAMass(I,J,L) + State_Chm%GCMAM(m)%soa(I,J,L) * kgm3_to_ugm3
+               iSlot = State_Diag%Map_MamSOAMass%id2slot(m)
+               IF (iSlot > 0 .AND. State_Chm%GCMAM(m)%lsoa) &
+                   State_Diag%MamSOAMass(I,J,L,iSlot) = State_Chm%GCMAM(m)%soa(I,J,L) * kgm3_to_ugm3
            END DO
       ENDIF
       IF ( State_Diag%Archive_MamSSLTMass ) THEN
-           State_Diag%MamSSLTMass(I,J,L) = 0.
            DO m = 1, size(State_Chm%GCMAM)
-               IF (State_Chm%GCMAM(m)%lsslt) State_Diag%MamSSLTMass(I,J,L) = &
-                   State_Diag%MamSSLTMass(I,J,L) + State_Chm%GCMAM(m)%sslt(I,J,L) * kgm3_to_ugm3
+               iSlot = State_Diag%Map_MamSSLTMass%id2slot(m)
+               IF (iSlot > 0 .AND. State_Chm%GCMAM(m)%lsslt) &
+                   State_Diag%MamSSLTMass(I,J,L,iSlot) = State_Chm%GCMAM(m)%sslt(I,J,L) * kgm3_to_ugm3
            END DO
       ENDIF
       IF ( State_Diag%Archive_MamDUSTMass ) THEN
-           State_Diag%MamDUSTMass(I,J,L) = 0.
            DO m = 1, size(State_Chm%GCMAM)
-               IF (State_Chm%GCMAM(m)%ldust)  State_Diag%MamDUSTMass(I,J,L) = &
-                   State_Diag%MamDUSTMass(I,J,L) + State_Chm%GCMAM(m)%dust(I,J,L) * kgm3_to_ugm3
+               iSlot = State_Diag%Map_MamDUSTMass%id2slot(m)
+               IF (iSlot > 0 .AND. State_Chm%GCMAM(m)%ldust) &
+                   State_Diag%MamDUSTMass(I,J,L,iSlot) = State_Chm%GCMAM(m)%dust(I,J,L) * kgm3_to_ugm3
            END DO
       ENDIF
       IF ( State_Diag%Archive_MamNH4Mass ) THEN
-           State_Diag%MamNH4Mass(I,J,L) = 0.
            DO m = 1, size(State_Chm%GCMAM)
-               IF (State_Chm%GCMAM(m)%lnh4)  State_Diag%MamNH4Mass(I,J,L) = &
-                   State_Diag%MamNH4Mass(I,J,L) + State_Chm%GCMAM(m)%nh4(I,J,L) * kgm3_to_ugm3
+               iSlot = State_Diag%Map_MamNH4Mass%id2slot(m)
+               IF (iSlot > 0 .AND. State_Chm%GCMAM(m)%lnh4) &
+                   State_Diag%MamNH4Mass(I,J,L,iSlot) = State_Chm%GCMAM(m)%nh4(I,J,L) * kgm3_to_ugm3
            END DO
       ENDIF
       IF ( State_Diag%Archive_MamNO3Mass ) THEN
-           State_Diag%MamNO3Mass(I,J,L) = 0.
            DO m = 1, size(State_Chm%GCMAM)
-               IF (State_Chm%GCMAM(m)%lno3)  State_Diag%MamNO3Mass(I,J,L) = &
-                   State_Diag%MamNO3Mass(I,J,L) + State_Chm%GCMAM(m)%no3(I,J,L) * kgm3_to_ugm3
+               iSlot = State_Diag%Map_MamNO3Mass%id2slot(m)
+               IF (iSlot > 0 .AND. State_Chm%GCMAM(m)%lno3) &
+                   State_Diag%MamNO3Mass(I,J,L,iSlot) = State_Chm%GCMAM(m)%no3(I,J,L) * kgm3_to_ugm3
            END DO
       ENDIF
       IF ( State_Diag%Archive_MamCAMass ) THEN
-           State_Diag%MamCAMass(I,J,L) = 0.
            DO m = 1, size(State_Chm%GCMAM)
-               IF (State_Chm%GCMAM(m)%lca)  State_Diag%MamCAMass(I,J,L) = &
-                   State_Diag%MamCAMass(I,J,L) + State_Chm%GCMAM(m)%ca(I,J,L) * kgm3_to_ugm3
+               iSlot = State_Diag%Map_MamCAMass%id2slot(m)
+               IF (iSlot > 0 .AND. State_Chm%GCMAM(m)%lca) &
+                   State_Diag%MamCAMass(I,J,L,iSlot) = State_Chm%GCMAM(m)%ca(I,J,L) * kgm3_to_ugm3
            END DO
       ENDIF
       IF ( State_Diag%Archive_MamCO3Mass ) THEN
-           State_Diag%MamCO3Mass(I,J,L) = 0.
            DO m = 1, size(State_Chm%GCMAM)
-               IF (State_Chm%GCMAM(m)%lco3)  State_Diag%MamCO3Mass(I,J,L) = &
-                   State_Diag%MamCO3Mass(I,J,L) + State_Chm%GCMAM(m)%co3(I,J,L) * kgm3_to_ugm3
+               iSlot = State_Diag%Map_MamCO3Mass%id2slot(m)
+               IF (iSlot > 0 .AND. State_Chm%GCMAM(m)%lco3) &
+                   State_Diag%MamCO3Mass(I,J,L,iSlot) = State_Chm%GCMAM(m)%co3(I,J,L) * kgm3_to_ugm3
            END DO
       ENDIF
       IF ( State_Diag%Archive_MamCLMass ) THEN
-           State_Diag%MamCLMass(I,J,L) = 0.
            DO m = 1, size(State_Chm%GCMAM)
-               IF (State_Chm%GCMAM(m)%lcl)  State_Diag%MamCLMass(I,J,L) = &
-                   State_Diag%MamCLMass(I,J,L) + State_Chm%GCMAM(m)%cl(I,J,L) * kgm3_to_ugm3
+               iSlot = State_Diag%Map_MamCLMass%id2slot(m)
+               IF (iSlot > 0 .AND. State_Chm%GCMAM(m)%lcl) &
+                   State_Diag%MamCLMass(I,J,L,iSlot) = State_Chm%GCMAM(m)%cl(I,J,L) * kgm3_to_ugm3
            END DO
       ENDIF
       IF ( State_Diag%Archive_MamMOMMass ) THEN
-           State_Diag%MamMOMMass(I,J,L) = 0.
            DO m = 1, size(State_Chm%GCMAM)
-               IF (State_Chm%GCMAM(m)%lmom)  State_Diag%MamMOMMass(I,J,L) = &
-                   State_Diag%MamMOMMass(I,J,L) + State_Chm%GCMAM(m)%mom(I,J,L) * kgm3_to_ugm3
+               iSlot = State_Diag%Map_MamMOMMass%id2slot(m)
+               IF (iSlot > 0 .AND. State_Chm%GCMAM(m)%lmom) &
+                   State_Diag%MamMOMMass(I,J,L,iSlot) = State_Chm%GCMAM(m)%mom(I,J,L) * kgm3_to_ugm3
            END DO
       ENDIF
 
   IF ( State_Diag%Archive_MamWATMass ) THEN
-       State_Diag%MamWATMass(I,J,L) = 0.
        DO m = 1, size(State_Chm%GCMAM)
-             State_Diag%MamWATMass(I,J,L) = &
-               State_Diag%MamWATMass(I,J,L) + State_Chm%GCMAM(m)%aerwat(I,J,L) * kgm3_to_ugm3
+           iSlot = State_Diag%Map_MamWATMass%id2slot(m)
+           IF (iSlot > 0) &
+               State_Diag%MamWATMass(I,J,L,iSlot) = State_Chm%GCMAM(m)%aerwat(I,J,L) * kgm3_to_ugm3
        END DO
   ENDIF
 
      IF ( State_Diag%Archive_Mamwetrad ) THEN
-       State_Diag%Mamwetrad(I,J,L) = 0.
-       DO m = 1, 1 ! FAB just output the accum mode fro now
-           State_Diag%Mamwetrad(I,J,L) = &
-               State_Diag%Mamwetrad(I,J,L) + State_Chm%GCMAM(m)%wetrad(I,J,L)
-       END DO
+         DO m = 1, size(State_Chm%GCMAM)
+             iSlot = State_Diag%Map_Mamwetrad%id2slot(m)
+             IF (iSlot > 0) &
+                 State_Diag%Mamwetrad(I,J,L,iSlot) = State_Chm%GCMAM(m)%wetrad(I,J,L)
+         END DO
      ENDIF
 
       IF ( State_Diag%Archive_Mamdryrad ) THEN
-       State_Diag%Mamdryrad(I,J,L) = 0.
-       DO m = 1, 1
-           State_Diag%Mamdryrad(I,J,L) = &
-               State_Diag%Mamdryrad(I,J,L) + State_Chm%GCMAM(m)%dryrad(I,J,L)
-       END DO
+          DO m = 1, size(State_Chm%GCMAM)
+              iSlot = State_Diag%Map_Mamdryrad%id2slot(m)
+              IF (iSlot > 0) &
+                  State_Diag%Mamdryrad(I,J,L,iSlot) = State_Chm%GCMAM(m)%dryrad(I,J,L)
+          END DO
       ENDIF
 
       IF ( State_Diag%Archive_Mamhygro ) THEN
-       State_Diag%Mamhygro(I,J,L) = 0.
-       DO m = 1, 1
-           State_Diag%Mamhygro(I,J,L) = &
-               State_Diag%Mamhygro(I,J,L) + State_Chm%GCMAM(m)%hygro(I,J,L)
-       END DO
-       ENDIF
-! aerosol optical properties 
-     
-        ! modal 
+          DO m = 1, size(State_Chm%GCMAM)
+              iSlot = State_Diag%Map_Mamhygro%id2slot(m)
+              IF (iSlot > 0) &
+                  State_Diag%Mamhygro(I,J,L,iSlot) = State_Chm%GCMAM(m)%hygro(I,J,L)
+          END DO
+      ENDIF
+
+      IF ( State_Diag%Archive_MamPH ) THEN
+          DO m = 1, size(State_Chm%GCMAM)
+              iSlot = State_Diag%Map_MamPH%id2slot(m)
+              IF (iSlot > 0) &
+                  State_Diag%MamPH(I,J,L,iSlot) = State_Chm%GCMAM(m)%pH(I,J,L)
+          END DO
+      ENDIF
+! aerosol optical properties
+
+        ! modal
       IF ( State_Diag%Archive_MamTauxarv ) THEN
           DO m = 1, size(State_Chm%GCMAM)
-            IF (State_Diag%Map_MamTauxarv%id2slot(m) > 0)  &
-            State_Diag%MamTauxarv(I,J,L,m) = State_Chm%GCMAM(m)%tauxar(I,J,L,10) !visible band  
+            iSlot = State_Diag%Map_MamTauxarv%id2slot(m)
+            IF (iSlot > 0)  &
+            State_Diag%MamTauxarv(I,J,L,iSlot) = State_Chm%GCMAM(m)%tauxar(I,J,L,10) !visible band
            END DO
       ENDIF
       IF ( State_Diag%Archive_Mamssav ) THEN
           DO m = 1, size(State_Chm%GCMAM)
-            IF (State_Diag%Map_Mamssav%id2slot(m) > 0)  &
-            State_Diag%Mamssav(I,J,L,m) = State_Chm%GCMAM(m)%ssa(I,J,L,10) !visible band  
+            iSlot = State_Diag%Map_Mamssav%id2slot(m)
+            IF (iSlot > 0)  &
+            State_Diag%Mamssav(I,J,L,iSlot) = State_Chm%GCMAM(m)%ssa(I,J,L,10) !visible band
            END DO
       ENDIF
       IF ( State_Diag%Archive_Mamgv ) THEN
           DO m = 1, size(State_Chm%GCMAM)
-            IF (State_Diag%Map_Mamgv%id2slot(m) > 0)  &
-            State_Diag%Mamgv(I,J,L,m) = State_Chm%GCMAM(m)%g(I,J,L,10) !visible band  
+            iSlot = State_Diag%Map_Mamgv%id2slot(m)
+            IF (iSlot > 0)  &
+            State_Diag%Mamgv(I,J,L,iSlot) = State_Chm%GCMAM(m)%g(I,J,L,10) !visible band
            END DO
       ENDIF
 
@@ -1160,27 +1185,23 @@ END SUBROUTINE Set_MAM_Diagnostic
 !\\
 ! !INTERFACE:
 !
-  SUBROUTINE MAM_APPLY_RAINOUT_EFF( hygro, TK, SpcInfo, RainFrac )
+  SUBROUTINE MAM_APPLY_RAINOUT_EFF( hygro, nudryrad, TK, SpcInfo, RainFrac )
 !
 ! !USES:
 !
     USE Species_Mod, ONLY : Species
-    USE State_Chm_Mod, ONLY : ChmState
 !
 ! !INPUT PARAMETERS:
 !
-!    INTEGER        INTENT(IN)    :: I,J,L      ! loop indices 
     REAL(fp),      INTENT(IN)    :: TK         ! Temperature [K]
-    REAL(fp),      INTENT(IN)    :: hygro      ! mode hygroscopicty
+    REAL(fp),      INTENT(IN)    :: hygro      ! mode hygroscopicity
+    REAL(fp),      INTENT(IN)    :: nudryrad   ! number-mode dry radius [m]
     TYPE(Species), INTENT(IN)    :: SpcInfo    ! Species Database object
-                                               ! mode index notably
 !
 ! !INPUT/OUTPUT PARAMETERS:
 !
     REAL(fp),      INTENT(INOUT) :: RainFrac   ! Rainout fraction
 
-! LOCAL 
-    REAL(fp)                   :: RainoutEff    
 ! !REVISION HISTORY:
 !  06 Jan 2015 - R. Yantosca - Initial version
 !  See https://github.com/geoschem/geos-chem for complete history
@@ -1190,46 +1211,77 @@ END SUBROUTINE Set_MAM_Diagnostic
 !
 ! !LOCAL VARIABLES:
 !
+    REAL(fp) :: RainoutEff, dgn_dry, kappa_ref
+    ! Kohler theory constants: A=(2.1e-9 m)^3, S_s=0.15% -> Ss2=(1.5e-3)^2
+    REAL(fp), PARAMETER :: A3       = 9.261e-27_fp
+    REAL(fp), PARAMETER :: Ss2      = 2.25e-6_fp
+    REAL(fp), PARAMETER :: luo_norm = 153.5_fp
 
-    Rainouteff = 0.0e+0_fp
-    
-    ! Apply hygro-temperature-mode dependent rainout efficiencies
- 
-    IF ( TK < 258.0_fp ) THEN ! cold and mixed phase clouds 
-       ! Ice: T < 237 K
-       ! first approach : value set following arguments developped in Luo et al., 2020
-       ! perhaps find more appropriate rational ( use mode modal species composition)  
-      IF (SpcInfo%MamModId == 1) then ! Accum 
-         IF(hygro > 0.5e+0_fp ) then 
-            Rainouteff = 0.4e+0_fp
-         ELSE 
-            Rainouteff = 0.6e+0_fp 
-         END IF
-      END IF
+    Rainouteff = 0.0_fp
 
-      IF (SpcInfo%MammodId == 2)  Rainouteff = 0.08e+0_fp  !Aitken assumed to    
+    IF ( TK < 237.0_fp ) THEN
+       ! Pure ice regime: ice nucleation controls, kappa irrelevant.
+       ! Retain empirical fixed values (Luo et al., 2020).
+       SELECT CASE ( SpcInfo%MamModId )
+         CASE (1)  ! Accumulation
+           IF ( hygro > 0.5_fp ) THEN
+             Rainouteff = 0.4_fp
+           ELSE
+             Rainouteff = 0.6_fp
+           END IF
+         CASE (2)  ! Aitken
+           Rainouteff = 0.08_fp
+         CASE (3)  ! Coarse (dust-dominated)
+           IF ( hygro > 0.4_fp ) THEN
+             Rainouteff = 0.4_fp
+           ELSE
+             Rainouteff = 1.0_fp
+           END IF
+         CASE (4)  ! Primary carbon (hydrophobic)
+           Rainouteff = 0.5_fp
+       END SELECT
 
-      IF (SpcInfo%MamModId == 3) then !coarse
-         IF(hygro > 0.4e+0_fp ) then 
-             Rainouteff = 0.4e+0_fp ! scavenge like hydrophilic 
-         ELSE
-             Rainouteff = 1.0e+0_fp ! likely coarse dust dominated      
-         END IF
-       END IF    
+    ELSE IF ( TK < 258.0_fp ) THEN
+       ! Mixed-phase regime (237-258 K).
+       ! Coarse (dust) and primary carbon: ice nucleation fraction from
+       ! DeMott et al. (2015) via Luo et al. (2020). Primary carbon uses
+       ! 50% of dust value (Luo et al., 2020).
+       ! Accum and Aitken: CCN activation into supercooled liquid droplets
+       ! still dominates -> kappa-based mapping, no Luo correction.
+       SELECT CASE ( SpcInfo%MamModId )
+         CASE (3)  ! Coarse: dust ice nucleation efficiency x Luo correction
+           IF ( hygro > 0.4_fp ) THEN
+             Rainouteff = 0.4_fp
+           ELSE
+             Rainouteff = 1.0_fp
+           END IF
+           Rainouteff = Rainouteff * &
+              ( EXP( 0.46_fp * ( 273.16_fp - TK ) - 11.6_fp ) / luo_norm )
+         CASE (4)  ! Primary carbon: 50% of dust ice nucleation fraction
+           Rainouteff = 0.5_fp * &
+              ( EXP( 0.46_fp * ( 273.16_fp - TK ) - 11.6_fp ) / luo_norm )
+         CASE DEFAULT  ! Accum, Aitken: kappa-based liquid CCN activation
+           dgn_dry   = nudryrad * 2.0_fp
+           kappa_ref = 4.0_fp * A3 / ( 27.0_fp * dgn_dry**3 * Ss2 )
+           Rainouteff = MIN( 1.0_fp, hygro / kappa_ref )
+       END SELECT
 
-       IF (SpcInfo%MamModId == 4)  Rainouteff = 0.5e+0_fp !MAM primary carbon : hydrophobic
-         
-       IF ( TK >= 237.0_fp )  then  ! mixed phase , temp. correction ( Luo et al., 2020)
-             Rainouteff = Rainouteff * &
-             ( EXP( 0.46e+0_fp * ( 273.16_fp - TK ) - 11.6_fp ) / 153.5_fp )
-       END IF 
+    ELSE
+       ! Warm liquid clouds (T >= 258 K): CCN activation controls.
+       ! kappa_ref from Kohler theory at mode dry diameter and S_s=0.15%.
+       ! Coarse mode: kappa_ref << kappa -> always activates.
+       SELECT CASE ( SpcInfo%MamModId )
+         CASE (3)
+           Rainouteff = 1.0_fp
+         CASE DEFAULT
+           dgn_dry   = nudryrad * 2.0_fp
+           kappa_ref = 4.0_fp * A3 / ( 27.0_fp * dgn_dry**3 * Ss2 )
+           Rainouteff = MIN( 1.0_fp, hygro / kappa_ref )
+       END SELECT
 
-    ELSE ! warm clouds, Liquid rain: T > 258 K
-         ! consider that rainout efficiency equals MAM hygroscopcity, limited to 1. 
-           Rainouteff = min(hygro,1.0e+0_fp) 
-    ENDIF
+    END IF
 
-     RainFrac = RainFrac * Rainouteff
+    RainFrac = RainFrac * Rainouteff
 
   END SUBROUTINE MAM_APPLY_RAINOUT_EFF
 SUBROUTINE MAM_OPT_to_RRTMG( Input_Opt,  State_Chm,  State_Diag, &
@@ -1584,5 +1636,27 @@ SUBROUTINE MAM_OPT_to_RRTMG( Input_Opt,  State_Chm,  State_Diag, &
     RTASYMAER  => NULL()
 
   END SUBROUTINE MAM_OPT_to_RRTMG
+
+
+  FUNCTION MamMassFrac( r_min, r_max, r_g, sigma_g ) RESULT( f )
+  USE, INTRINSIC :: ISO_C_BINDING
+  REAL(fp), INTENT(IN) :: r_min, r_max  ! bin edges [same units as r_g]
+  REAL(fp), INTENT(IN) :: r_g           ! geometric mean radius
+  REAL(fp), INTENT(IN) :: sigma_g       ! geometric standard deviation
+  REAL(fp)             :: f
+  REAL(fp)             :: ln_sg, cdf_max, cdf_min
+
+  ln_sg   = LOG( sigma_g )
+  cdf_min = 0.5_fp * ( 1.0_fp + ERF( LOG(r_min/r_g) / (SQRT(2.0_fp) * ln_sg) ) )
+  cdf_max = 0.5_fp * ( 1.0_fp + ERF( LOG(r_max/r_g) / (SQRT(2.0_fp) * ln_sg) ) )
+  f       = cdf_max - cdf_min
+
+  END FUNCTION
+
+
+
+
+
+
   END MODULE MAM_DRIV_MOD
 !FAB#endif

@@ -889,26 +889,24 @@ CONTAINS
        ENDDO
 #endif
 #if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
-    ! FAB interstitial state is scavenged by convective clouds.
-    ! Cloud-borne state is tied to stratiform (LS) clouds only — when
-    ! cloud-borne treatment is developed, add .and. .not.SpcInfo%Is_CloudBorne here.
-    ! Scavenging fraction uses Kohler CCN activation at convective S_s=0.5%:
-    !   f_ccn = min(1, kappa/kappa_ref_conv), kappa_ref_conv=4A^3/(27*Dd^3*Ss^2)
-    ! Rewritten as kappa*27*Dd^3*Ss^2/(4A^3) to avoid a 3D temporary.
-    ! A=2.1e-9m -> 4A^3=3.7044e-26; Ss=0.005 -> Ss^2=2.5e-5.
-    ! Coarse: kappa_ref<<kappa -> f_ccn=1. Aitken: partial (kappa_ref~0.44).
-    ! Accum (Dd~200nm): kappa_ref~0.007 -> all hygroscopic species fully activate.
+    ! MAM convective scavenging (mass):
+    ! CB is tied to stratiform clouds only — no convective scavenging.
+    ! Interstitial: κ-based CCN activation at convective S_s=0.5%.
        IF ( SpcInfo%MamModId > 0 ) THEN
-          CALL F_AEROSOL( KC, KcScale, Input_Opt, State_Grid, State_Met, F )
-          IF ( SpcInfo%WD_AerScavEff > 0.0_fp ) THEN
-             F = F * MIN(1.0_fp,                                                    &
-                 State_Chm%GCMAM(SpcInfo%MamModId)%hygro                           &
-                 * 27.0_fp                                                          &
-                 * (2.0_fp * State_Chm%GCMAM(SpcInfo%MamModId)%nudryrad)**3        &
-                 * 2.5e-5_fp / 3.7044e-26_fp )
-          ENDIF
+          IF ( SpcInfo%Is_CloudBorne ) THEN
+             F = 0.0_fp
+          ELSE
+             CALL F_AEROSOL( KC, KcScale, Input_Opt, State_Grid, State_Met, F )
+             IF ( SpcInfo%WD_AerScavEff > 0.0_fp ) THEN
+                F = F * MIN(1.0_fp,                                                 &
+                    State_Chm%GCMAM(SpcInfo%MamModId)%hygro                        &
+                    * 27.0_fp                                                       &
+                    * (2.0_fp * State_Chm%GCMAM(SpcInfo%MamModId)%nudryrad)**3     &
+                    * 2.5e-5_fp / 3.7044e-26_fp )
+             END IF
+          END IF
        END IF
-#endif 
+#endif
 
     !-----------------------------------------------------------
     ! Size-resolved aerosol number
@@ -939,19 +937,22 @@ CONTAINS
        ENDDO
 #endif
 #if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
-    ! Same Kohler-based convective activation as mass block above.
-    ! Cloud-borne: add .and. .not.SpcInfo%Is_CloudBorne when developed.
+    ! MAM convective scavenging (number): same logic as mass block above.
        IF ( SpcInfo%MamModId > 0 ) THEN
-          CALL F_AEROSOL( KC, KcScale, Input_Opt, State_Grid, State_Met, F )
-          IF ( SpcInfo%WD_AerScavEff > 0.0_fp ) THEN
-             F = F * MIN(1.0_fp,                                                    &
-                 State_Chm%GCMAM(SpcInfo%MamModId)%hygro                           &
-                 * 27.0_fp                                                          &
-                 * (2.0_fp * State_Chm%GCMAM(SpcInfo%MamModId)%nudryrad)**3        &
-                 * 2.5e-5_fp / 3.7044e-26_fp )
-          ENDIF
+          IF ( SpcInfo%Is_CloudBorne ) THEN
+             F = 0.0_fp
+          ELSE
+             CALL F_AEROSOL( KC, KcScale, Input_Opt, State_Grid, State_Met, F )
+             IF ( SpcInfo%WD_AerScavEff > 0.0_fp ) THEN
+                F = F * MIN(1.0_fp,                                                 &
+                    State_Chm%GCMAM(SpcInfo%MamModId)%hygro                        &
+                    * 27.0_fp                                                       &
+                    * (2.0_fp * State_Chm%GCMAM(SpcInfo%MamModId)%nudryrad)**3     &
+                    * 2.5e-5_fp / 3.7044e-26_fp )
+             END IF
+          END IF
        END IF
-#endif 
+#endif
 
     !-----------------------------------------------------------
     ! Soluble aerosol species (non-size-resolved)
@@ -1250,9 +1251,6 @@ CONTAINS
     USE Species_Mod,   ONLY : Species
     USE State_Chm_Mod, ONLY : ChmState
     USE State_Met_Mod, ONLY : MetState
-#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
-    USE MAM_DRIV_MOD, ONLY : MAM_APPLY_RAINOUT_EFF
-#endif
 !
 ! !INPUT PARAMETERS:
 !
@@ -1501,22 +1499,25 @@ CONTAINS
     !=================================================================
     ELSE
 
-       ! Compute rainout fraction for aerosol tracres
-       RAINFRAC = GET_RAINFRAC( K_RAIN, F, DT )
-
-       ! Apply temperature-dependent rainout efficiencies
-       ! This accounts for impaction scavenging of certain aerosols
-#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM) 
-       if (SpcInfo%MamModId > 0 ) then !    
-         CALL MAM_APPLY_RAINOUT_EFF(State_Chm%GCMAM(SpcInfo%MamModId)%hygro(I,J,L),   &
-                                     State_Chm%GCMAM(SpcInfo%MamModId)%nudryrad(I,J,L), &
-                                     p_T, SpcInfo, RAINFRAC )
-       else 
-         CALL APPLY_RAINOUT_EFF( p_T, SpcInfo, RAINFRAC )
-       endif               
-#else
+       ! Compute rainout fraction for aerosol tracers.
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
+       ! CB: normalise F by CLDF so the scavenging rate reflects the in-cloud
+       ! concentration (CB mass is distributed over CF, not the full box).
+       ! Cap at 1.0: in-cloud precip fraction cannot exceed the cloud itself.
+       ! Interstitial MAM never reaches here — cycled in the outer species loop.
+       IF ( SpcInfo%MamModId > 0 .and. SpcInfo%Is_CloudBorne ) THEN
+         RAINFRAC = GET_RAINFRAC( K_RAIN,                                    &
+                                  MIN( F / MAX( State_Met%CLDF(I,J,L),      &
+                                               1.e-3_fp ), 1.0_fp ),        &
+                                  DT )
+       ELSE
+         RAINFRAC = GET_RAINFRAC( K_RAIN, F, DT )
+       END IF
        CALL APPLY_RAINOUT_EFF( p_T, SpcInfo, RAINFRAC )
-#endif 
+#else
+       RAINFRAC = GET_RAINFRAC( K_RAIN, F, DT )
+       CALL APPLY_RAINOUT_EFF( p_T, SpcInfo, RAINFRAC )
+#endif
     ENDIF
 #endif
 
@@ -1978,8 +1979,8 @@ CONTAINS
 #endif
 !FAB 
 #if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
-       ! wahout only applies to MAM species and intersticial state
-       IF(SpcInfo%MamModId > 0 )THEN !FAB pb .and. .not.SpcInfo%Is_CloudBorne) THEN                
+       ! Washout applies to MAM interstitial only — CB aerosol is inside droplets
+       IF(SpcInfo%MamModId > 0 .and. .not. SpcInfo%Is_CloudBorne) THEN
            KIN = .TRUE.
            RIN = 0.0_fp
            IF(SpcInfo%MP_SizeResNum)THEN
@@ -4293,11 +4294,9 @@ END FUNCTION WASHFRAC_DUSTBIN
        N = State_Chm%Map_WetDep(NW)
 
 #if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
-!FAB rainout applies only to MAM and cloud borne-state species 
-!cycle if not. 
-!Note : for now consider no cloudborne state :  is_cloudborne is set 
-!to true in the species.yml so that aerosol is still rained out based on hygroscopicity
-!( cf RAINOUT routine) 
+       ! Rainout (stratiform) applies only to CB aerosol.
+       ! Interstitial MAM is not rained out here; activation into CB is handled
+       ! by MAM_ACTIVATE_EVAP in mam_driv_mod before this wet-dep step.
        IF (State_Chm%SpcData(N)%Info%MamModId > 0 .and.                   &
          .not. State_Chm%SpcData(N)%Info%Is_CloudBorne) cycle
 #endif
@@ -4347,6 +4346,14 @@ END FUNCTION WASHFRAC_DUSTBIN
        ENDIF
 #endif
 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
+       ! Clamp CB to zero BEFORE computing WETLOSS.  Float-point residuals
+       ! from activation/evaporation can leave tiny negative concentrations;
+       ! if left unclamped they make WETLOSS < 0, which propagates into DSpc
+       ! and triggers the DSpc < 0 safety check below.
+       IF ( State_Chm%SpcData(N)%Info%Is_CloudBorne )                         &
+          Spc(N)%Conc(I,J,L) = MAX( 0.0_fp, Spc(N)%Conc(I,J,L) )
+#endif
        ! WETLOSS is the amount of species in grid box per unit area
        ! (I,J,L) that is lost to rainout [kg/m2]
        WETLOSS = Spc(N)%Conc(I,J,L) * RAINFRAC
@@ -4667,6 +4674,12 @@ END FUNCTION WASHFRAC_DUSTBIN
 
        ! Get the species ID from the wetdep ID
        N           = State_Chm%Map_WetDep(NW)
+
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
+       ! CB aerosol is already inside cloud droplets; skip below-cloud washout
+       IF ( State_Chm%SpcData(N)%Info%MamModId   > 0 .AND.  &
+            State_Chm%SpcData(N)%Info%Is_CloudBorne     ) CYCLE
+#endif
 
        ! zero local variables
        ALPHA       = 0e+0_fp
@@ -5141,6 +5154,19 @@ END FUNCTION WASHFRAC_DUSTBIN
        ! Get the species ID from the wetdep ID
        N = State_Chm%Map_WetDep(NW)
 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
+       ! CB aerosol is already inside cloud droplets.  When precipitation
+       ! evaporates, the released aerosol becomes interstitial (not CB), so
+       ! re-evaporation back into the CB pool is physically incorrect.
+       ! Skip CB entirely; DSpc for CB is zeroed implicitly when the
+       ! accumulator is never written for these species.
+       IF ( State_Chm%SpcData(N)%Info%MamModId   > 0 .AND.  &
+            State_Chm%SpcData(N)%Info%Is_CloudBorne     ) THEN
+          DSpc(NW,L,I,J) = 0.0_fp
+          CYCLE
+       END IF
+#endif
+
        ! WETLOSS is the amount of species in grid box (I,J,L) per area
        ! that is lost to rainout. (qli, bmy, 10/29/02)
        WETLOSS = -DSpc(NW,L+1,I,J)
@@ -5441,12 +5467,18 @@ END FUNCTION WASHFRAC_DUSTBIN
        ! Get species ID from wetdep ID
        N = State_Chm%Map_WetDep(NW)
 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
+       ! CB aerosol is already inside cloud droplets; skip below-cloud washout
+       IF ( State_Chm%SpcData(N)%Info%MamModId   > 0 .AND.  &
+            State_Chm%SpcData(N)%Info%Is_CloudBorne     ) CYCLE
+#endif
+
        ! Call WASHOUT to compute the fraction of species
        ! in grid box (I,J,L) that is lost to washout.
        CALL WASHOUT(                                                         &
             ! --- Input ---
-            I          = I,                                                  & 
-            J          = J,                                                  & 
+            I          = I,                                                  &
+            J          = J,                                                  &
             L          = L,                                                  &
             N          = N,                                                  &
             BXHEIGHT   = State_Met%BXHEIGHT(I,J,L),                          &

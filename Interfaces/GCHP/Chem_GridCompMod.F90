@@ -279,6 +279,7 @@ CONTAINS
     CHARACTER(LEN=ESMF_MAXSTR)    :: COMP_NAME     ! This syntax for mapl_acg.pl
     CHARACTER(LEN=ESMF_MAXSTR)    :: HcoConfigFile ! HEMCO configuration file
     CHARACTER(LEN=ESMF_MAXSTR)    :: SpcName       ! Registered species name
+    CHARACTER(LEN=ESMF_MAXSTR)    :: cbName        ! Cloud-borne counterpart name
     CHARACTER(LEN=40)             :: AdvSpc(500)
     CHARACTER(LEN=255)            :: LINE, MSG, SUBSTRS(500)
     INTEGER                       :: N, I, J, IU_GEOS, IOS
@@ -834,6 +835,28 @@ CONTAINS
           ENDIF
        ENDDO
     ENDIF
+
+#if !defined( MODEL_GEOS )
+    ! Register non-advected MAMCB cloud-borne counterparts in the MAPL
+    ! internal state.  Not friendly to DYNAMICS so FV3 does not transport
+    ! them; RESTART=Optional so they initialise to zero on first run.
+    DO I = 1, NADV
+       SpcName = ADJUSTL( AdvSpc(I) )
+       IF ( SpcName(1:3) == 'MAM' .AND. SpcName(1:5) /= 'MAMCB' ) THEN
+          cbName = 'MAMCB' // TRIM( SpcName(4:) )
+          CALL MAPL_AddInternalSpec(GC, &
+               SHORT_NAME = TRIM(SPFX) // TRIM(cbName),  &
+               LONG_NAME  = TRIM(cbName),                 &
+               UNITS      = 'mol mol-1',                  &
+               PRECISION  = ESMF_KIND_R8,                 &
+               DIMS       = MAPL_DimsHorzVert,            &
+               VLOCATION  = MAPL_VLocationCenter,         &
+               RESTART    = MAPL_RestartOptional,         &
+               RC         = STATUS                       )
+          _VERIFY(STATUS)
+       ENDIF
+    ENDDO
+#endif
 
 #if !defined( MODEL_GEOS )
     ! Add other internal state variables as real8 for GCHP

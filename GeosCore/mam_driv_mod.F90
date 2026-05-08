@@ -29,7 +29,7 @@ PRIVATE
 
 !PUBLIC MEMBER FUNCTIONS:
 
-PUBLIC :: MAM_DRIV, MAM_INIT, MAM_APPLY_RAINOUT_EFF, MAM_OPT_to_RRTMG 
+PUBLIC :: MAM_DRIV, MAM_INIT, MAM_APPLY_RAINOUT_EFF, MAM_OPT_to_RRTMG, MAM_ACTIVATE_EVAP
 
 ! !REMARKS:
 !  The MAM model was designed and developed for implementation into GEOS-Chem
@@ -80,6 +80,12 @@ INTEGER nmamgc ! number of GC advected MAM tracers
     INTEGER, save  :: mamstep ! number of elapsed mam call since first call
     LOGICAL, save  :: lfirstcall
     LOGICAL, save  :: is_cbsim
+
+    ! Interstitial-to-CB partner index: cb_partner(s) = index in mamgc of the
+    ! CB species with same (mamind, modId) as interstitial species s; -1 if none.
+    INTEGER, ALLOCATABLE, SAVE :: cb_partner(:)
+    ! Cloud fraction from previous MAM_DRIV call, for activation/evaporation tendency.
+    REAL(fp), ALLOCATABLE, SAVE :: CLDF_prev(:,:,:)
 
 CONTAINS
 !EOC
@@ -175,8 +181,8 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       real(r8)  :: ga(pcols,pver,nswbands)      ! aerosol asymmetry parameter * wa
       real(r8)  :: fa(pcols,pver,nswbands)      ! aerosol forward scattered fraction * ga
       real(r8) :: taux_lw(pcols,pver,nlwbands)
-      real(r8) :: relhum_loc(pcols,pver)
       real(r8) :: pH_aer_out(pcols,pver,ntot_amode)
+      real(r8) :: relhum_loc(pcols,pver)   ! clear-sky RH for wateruptake
       !-------------
       INTEGER :: latndx(pcols),lonndx(pcols)                 !required by the mam interface
                                                 !not used now potentiall usefull for diags 
@@ -333,11 +339,23 @@ CALL load_pbuf( pbuf, lchnk, pcols, &
       physta%lchnk = lchnk      
       physta%ncol = pcols      
 
-! WATER UPTAKE    
+! WATER UPTAKE
      CALL load_pbuf( pbuf, lchnk, pcols, &
         physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens, physta%hygro )
 !
-     relhum_loc = physta%relhum
+     ! Clear-sky RH from GEOS-5 (avoids internal qsat lookup).
+     ! Same (rh - fcld)/(1-fcld) formula as amicphys; consistent with the
+     ! wateruptake design intent (see comment in modal_aero_amicphys.F90 ~L801).
+     do l = 1, pver
+       do n = 1, pcols
+         if (physta%cld(n,l) < 1.0_r8) then
+           relhum_loc(n,l) = max( 0.0_r8, &
+              (physta%relhum(n,l) - physta%cld(n,l)) / (1.0_r8 - physta%cld(n,l)) )
+         else
+           relhum_loc(n,l) = 0.0_r8
+         end if
+       end do
+     end do
      CALL modal_aero_wateruptake_dr( physta, pbuf, deltat, mamstep, clear_rh_in = relhum_loc)
      
      CALL unload_pbuf( pbuf, lchnk, pcols, &
@@ -499,8 +517,9 @@ IF(1==1) THEN
                                 physta%q(n,L,numptr_amode(m))*State_Met%AIRDEN(I,J,L)
         ! modal mass concentrations in Kg.m-3  
         IF(lptr_so4_a_amode(m) > 0 ) State_Chm%GCMAM(m)%so4(I,J,L) =              & 
-                                physta%q(n,L,lptr_so4_a_amode(m))*State_Met%AIRDEN(I,J,L)
-        ! + &  
+                                physta%q(n,L,lptr_so4_a_amode(m))*State_Met%AIRDEN(I,J,L) &
+                              + physta%qqcw(n,L,lptr_so4_a_amode(m))*State_Met%AIRDEN(I,J,L) 
+                        !  
         !FAB TEMP add the cloud borne sulf to chm state for diag // change that once 
         ! transfer from qqcw to q is properly trated !!
         ! physta%qqcw(n,L,lptr_so4_a_amode(m))*State_Met%AIRDEN(I,J,L)    
@@ -543,9 +562,12 @@ IF(1==1) THEN
         State_Chm%GCMAM(m)%tauxar(I,J,L,:) = mamoptdiag(m)%tauxar(n,L,:)
         State_Chm%GCMAM(m)%ssa(I,J,L,:) = mamoptdiag(m)%ssa(n,L,:)
         State_Chm%GCMAM(m)%g(I,J,L,:) = mamoptdiag(m)%g(n,L,:)
-
-        State_Chm%GCMAM(m)%pH(I,J,L) = pH_aer_out(n,L,m)
-
+!test
+  !      State_Chm%GCMAM(m)%pH(I,J,L) = pH_aer_out(n,L,m)
+          
+        if(m==1)   State_Chm%GCMAM(m)%pH(I,J,L) = physta%relhum(n,L)
+        if(m==2)   State_Chm%GCMAM(m)%pH(I,J,L) = physta%t(n,L)
+        if(m==3)   State_Chm%GCMAM(m)%pH(I,J,L) = physta%cld(n,L)
       END DO
      ENDDO
      ENDDO
@@ -566,11 +588,111 @@ END IF
 
 !
 
-    Spc => NULL() 
+    ! Activation / evaporation: transfer between interstitial and CB based on
+    ! CLDF tendency. On first call just snapshot CLDF, no transfer.
+    IF (is_cbsim) THEN
+      CALL MAM_ACTIVATE_EVAP( State_Grid, State_Met, State_Chm, Spc, lfirstcall )
+    END IF
+
+    Spc => NULL()
     IF (lfirstcall) lfirstcall = .false.
-    
-    
-  END SUBROUTINE MAM_DRIV 
+
+
+  END SUBROUTINE MAM_DRIV
+
+!------------------------------------------------------------------------------
+! !IROUTINE: MAM_ACTIVATE_EVAP
+!
+! !DESCRIPTION:
+!  Transfer mass between interstitial (q) and cloud-borne (qqcw / MAMCB*) MAM
+!  tracers based on the cloud-fraction tendency over one chemistry timestep.
+!
+!  ACTIVATION  (dCLDF > 0):  the newly clouded volume fraction dCLDF of the
+!    grid cell is assumed to contain interstitial aerosol at the grid-mean
+!    concentration.  The fraction f_act activates into cloud droplets, where
+!    f_act = MIN(1, κ · 27 · Dd³ · Ss² / (4·A³)) with Ss = 0.3 % (stratiform).
+!    Both κ and Dd are mode- and grid-point-specific, updated by calcsize /
+!    wateruptake earlier in the same MAM_DRIV call.
+!
+!  EVAPORATION (dCLDF < 0):  the fraction |dCLDF| / CLDF_prev of the cloud
+!    volume evaporates, releasing that fraction of the CB mass back to the
+!    interstitial pool.
+!
+!  On the first call (is_firstcall = .TRUE.) only the CLDF snapshot is stored;
+!  no transfer is performed to avoid a cold-start spike.
+!------------------------------------------------------------------------------
+SUBROUTINE MAM_ACTIVATE_EVAP( State_Grid, State_Met, State_Chm, Spc, is_firstcall )
+
+    USE State_Grid_Mod, ONLY : GrdState
+    USE State_Met_Mod,  ONLY : MetState
+    USE State_Chm_Mod,  ONLY : ChmState
+    USE Species_Mod,    ONLY : SpcConc
+
+    TYPE(GrdState), INTENT(IN)    :: State_Grid
+    TYPE(MetState), INTENT(IN)    :: State_Met
+    TYPE(ChmState), INTENT(IN)    :: State_Chm
+    TYPE(SpcConc),  INTENT(INOUT) :: Spc(:)
+    LOGICAL,        INTENT(IN)    :: is_firstcall
+
+    ! Köhler constants: A = 2.1e-9 m → 4·A³ = 3.7044e-26 m³; Ss_strat = 0.003
+    REAL(fp), PARAMETER :: A3_x4 = 3.7044e-26_fp   ! 4·(2.1e-9)³  [m³]
+    REAL(fp), PARAMETER :: Ss2_s = 9.0e-6_fp        ! (0.003)²
+
+    INTEGER  :: I, J, L, s, s_cb, m
+    REAL(fp) :: CF, CF_prev, dCF, f_act, delta
+
+    ! On first call: snapshot CLDF and return without any transfer.
+    IF (is_firstcall) THEN
+      CLDF_prev(:,:,:) = State_Met%CLDF(:,:,:)
+      RETURN
+    END IF
+
+    DO L = 1, State_Grid%NZ
+    DO J = 1, State_Grid%NY
+    DO I = 1, State_Grid%NX
+
+      CF      = State_Met%CLDF(I,J,L)
+      CF_prev = CLDF_prev(I,J,L)
+      dCF     = CF - CF_prev
+
+      IF (ABS(dCF) < 1.0e-10_fp) CYCLE
+
+      DO s = 1, nmamgc
+        IF (mamgc(s)%iscb) CYCLE
+        s_cb = cb_partner(s)
+        IF (s_cb < 0) CYCLE
+
+        m = mamgc(s)%modId
+
+        IF (dCF > 0.0_fp) THEN
+          ! Activation: f_act fraction of interstitial in the newly clouded
+          ! volume dCF transfers to CB.
+          f_act = MIN(1.0_fp,                                               &
+                      State_Chm%GCMAM(m)%hygro(I,J,L)                     &
+                      * 27.0_fp                                             &
+                      * (2.0_fp * State_Chm%GCMAM(m)%nudryrad(I,J,L))**3  &
+                      * Ss2_s / A3_x4 )
+          delta = f_act * MAX(Spc(mamgc(s)%gcind)%Conc(I,J,L), 0.0_fp) * dCF
+          Spc(mamgc(s)%gcind)%Conc(I,J,L)    = Spc(mamgc(s)%gcind)%Conc(I,J,L)    - delta
+          Spc(mamgc(s_cb)%gcind)%Conc(I,J,L) = Spc(mamgc(s_cb)%gcind)%Conc(I,J,L) + delta
+
+        ELSE
+          ! Evaporation: fraction |dCF|/CF_prev of CB releases back to interstitial.
+          delta = MAX(Spc(mamgc(s_cb)%gcind)%Conc(I,J,L), 0.0_fp)        &
+                  * ABS(dCF) / MAX(CF_prev, 1.0e-6_fp)
+          Spc(mamgc(s_cb)%gcind)%Conc(I,J,L) = Spc(mamgc(s_cb)%gcind)%Conc(I,J,L) - delta
+          Spc(mamgc(s)%gcind)%Conc(I,J,L)    = Spc(mamgc(s)%gcind)%Conc(I,J,L)    + delta
+        END IF
+
+      END DO
+
+      CLDF_prev(I,J,L) = CF
+
+    END DO
+    END DO
+    END DO
+
+END SUBROUTINE MAM_ACTIVATE_EVAP
 
 !-----------------------------------------------------------------
 
@@ -615,7 +737,7 @@ SUBROUTINE MAM_INIT( Input_Opt, State_Chm,  State_Diag, State_Grid, RC )
 !!
 
     INTEGER :: species_class(pcnst) = -1
-    INTEGER  :: m , i , s 
+    INTEGER  :: m , i ,j, s 
     CHARACTER * 12 :: tmp
 
     
@@ -630,7 +752,7 @@ SUBROUTINE MAM_INIT( Input_Opt, State_Chm,  State_Diag, State_Grid, RC )
 !   mdo_newnuc=1
 !   mdo_coag=1
 
-   is_cbsim = .false.
+   is_cbsim = .true.
 
 
    masterproc = Input_Opt%amIRoot
@@ -712,22 +834,46 @@ END IF
 ! to be updated when adding species to MAM
 END DO
 
- IF ( masterproc) then 
-  print*, 'MAM species INFO'
+ IF ( masterproc) then
+  print*, 'MAM/mamgc species INFO' 
   print*, mamgc(:)%name
   print*, mamgc(:)%gcind
   print*, mamgc(:)%mamind
   print*, mamgc(:)%modId
   print*, mamgc(:)%isnum
   print*, mamgc(:)%iscb
- ENDIF 
- IF (is_cbsim .and. .not.any(mamgc(:)%name(1:5)=='MAMCB')) then
-     print*, 'CloudBorne aerosol simulation enabled but no MAMCBxx species present in Species list !' 
-     stop    
- END IF         
+ ENDIF
+ IF (is_cbsim .and. .not.any(mamgc(:)%iscb)) then
+     print*, 'CloudBorne aerosol simulation enabled but no Is_CloudBorne species found in Species list !'
+     stop
+ END IF
 
+! Build interstitial → CB partner mapping (matched by mamind + modId).
+ ALLOCATE(cb_partner(nmamgc))
+ cb_partner = -1
+ IF (is_cbsim) THEN
+   DO i = 1, nmamgc
+     IF (mamgc(i)%iscb) CYCLE
+     DO j = 1, nmamgc
+       IF (mamgc(j)%iscb .and. &
+           mamgc(j)%mamind == mamgc(i)%mamind .and. &
+           mamgc(j)%modId  == mamgc(i)%modId ) THEN
+         cb_partner(i) = j
+         EXIT
+       END IF
+     END DO
+   END DO
+   IF (masterproc) THEN
+     print*, 'MAM CB partner indices (interstitial → CB):'
+     print*, cb_partner
+   END IF
+ END IF
 
-END SUBROUTINE MAM_INIT        
+! Allocate cloud-fraction history for activation/evaporation tendency.
+ ALLOCATE(CLDF_prev(State_Grid%NX, State_Grid%NY, State_Grid%NZ))
+ CLDF_prev = 0.0_fp
+
+END SUBROUTINE MAM_INIT
 
 
 

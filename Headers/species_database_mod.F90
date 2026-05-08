@@ -866,6 +866,24 @@ CONTAINS
 
        ENDDO
 
+       ! QFYAML does not expand YAML << merge keys, so properties inherited
+       ! via anchors (Is_CloudBorne, Is_Aerosol, Is_WetDep) are never set for
+       ! MAMCB species.  Override here by name convention; also assign IDs and
+       ! increment counters so Map_Aero / Map_WetDep are sized correctly.
+       IF ( ThisSpc%MamModId > 0 .AND. ThisSpc%Name(1:5) == 'MAMCB' ) THEN
+          ThisSpc%Is_CloudBorne = .TRUE.
+          IF ( .NOT. ThisSpc%Is_Aerosol ) THEN
+             SpcCount%nAeroSpc  = SpcCount%nAeroSpc + 1
+             ThisSpc%AerosolId  = SpcCount%nAeroSpc
+             ThisSpc%Is_Aerosol = .TRUE.
+          END IF
+          IF ( .NOT. ThisSpc%Is_WetDep ) THEN
+             SpcCount%nWetDep   = SpcCount%nWetDep + 1
+             ThisSpc%WetDepId   = SpcCount%nWetDep
+             ThisSpc%Is_WetDep  = .TRUE.
+          END IF
+       END IF
+
        !--------------------------------------------------------------------
        ! SANITY CHECKS
        !--------------------------------------------------------------------
@@ -1270,7 +1288,7 @@ CONTAINS
 ! !LOCAL VARIABLES:
 !
     ! Scalars
-    INTEGER                        :: nAdvect, K, S
+    INTEGER                        :: nAdvect, nMamCb, K, S
 
     ! Strings
     CHARACTER(LEN=255)             :: errMsg
@@ -1278,7 +1296,7 @@ CONTAINS
 
     ! Arrays
     CHARACTER(LEN=31), ALLOCATABLE :: Tmp(:)
-    CHARACTER(LEN=31)              :: SpcName
+    CHARACTER(LEN=31)              :: SpcName, cbName
 
     !=======================================================================
     ! UNIQUE_SPECIES_NAMES begins here!
@@ -1296,6 +1314,15 @@ CONTAINS
     ! First set the # of species to the # of advected species
     nSpecies = nAdvect
 
+    ! Count non-advected MAMCB cloud-borne counterparts (MAMxxx -> MAMCBxxx)
+    nMamCb = 0
+    DO S = 1, nAdvect
+       SpcName = ADJUSTL( Input_Opt%AdvectSpc_Name(S) )
+       IF ( SpcName(1:3) == 'MAM' .AND. SpcName(1:5) /= 'MAMCB' ) THEN
+          nMamCb = nMamCb + 1
+       ENDIF
+    ENDDO
+
     !=======================================================================
     ! For KPP-based simulations, get the list of all of
     ! species names in the KPP mechanism, and their indices
@@ -1307,7 +1334,8 @@ CONTAINS
        ! Allocate a temporary array large enough to hold all of the
        ! advected species listed in geoschem_config.yml as well as all of the
        ! KPP species names (listed in SPC_NAMES of gckpp_Monitor.F90)
-       ALLOCATE( Tmp( nAdvect + NSPEC ), STAT=RC )
+       ! plus the non-advected MAMCB cloud-borne counterparts
+       ALLOCATE( Tmp( nAdvect + NSPEC + nMamCb ), STAT=RC )
        CALL GC_CheckVar( 'species_database_mod.F90:Tmp', 0 , RC )
        IF ( RC /= GC_SUCCESS ) RETURN
        Tmp = ''
@@ -1319,7 +1347,7 @@ CONTAINS
 
        ! First, store advected species (from geoschem_config.yml) in the
        ! TMP array
-       DO S = 1, nSpecies
+       DO S = 1, nAdvect
           Tmp(S) = Input_Opt%AdvectSpc_Name(S)
        ENDDO
 
@@ -1337,6 +1365,16 @@ CONTAINS
              Tmp(nSpecies) = Spc_Names(K)
           ENDIF
 
+       ENDDO
+
+       ! Append non-advected MAMCB cloud-borne counterparts
+       DO S = 1, nAdvect
+          SpcName = ADJUSTL( Input_Opt%AdvectSpc_Name(S) )
+          IF ( SpcName(1:3) == 'MAM' .AND. SpcName(1:5) /= 'MAMCB' ) THEN
+             cbName        = 'MAMCB' // TRIM( SpcName(4:) )
+             nSpecies      = nSpecies + 1
+             Tmp(nSpecies) = cbName
+          ENDIF
        ENDDO
 
        ! Allocate the species names array precisely of length nSpecies
@@ -1418,11 +1456,18 @@ CONTAINS
     !=======================================================================
     ELSE
 
-       ! Initialize the species names array from Input_Opt
-       ALLOCATE( Species_Names( nSpecies ), STAT=RC )
+       ! Initialize the species names array from Input_Opt, then append MAMCB
+       ALLOCATE( Species_Names( nAdvect + nMamCb ), STAT=RC )
        CALL GC_CheckVar( 'species_database_mod.F90:Species_Names', 0, RC )
        IF ( RC /= GC_SUCCESS ) RETURN
-       Species_Names = Input_Opt%AdvectSpc_Name(1:nSpecies)
+       Species_Names(1:nAdvect) = Input_Opt%AdvectSpc_Name(1:nAdvect)
+       DO S = 1, nAdvect
+          SpcName = ADJUSTL( Input_Opt%AdvectSpc_Name(S) )
+          IF ( SpcName(1:3) == 'MAM' .AND. SpcName(1:5) /= 'MAMCB' ) THEN
+             nSpecies              = nSpecies + 1
+             Species_Names(nSpecies) = 'MAMCB' // TRIM( SpcName(4:) )
+          ENDIF
+       ENDDO
 
        ! Set KppSpcId to missing value
        ALLOCATE( KppSpcId( nSpecies ), STAT=RC )

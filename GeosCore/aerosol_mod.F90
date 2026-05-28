@@ -1103,7 +1103,7 @@ CONTAINS
     USE Species_Mod,    ONLY : Species
 !FAB
 #if defined(MODAL_AERO_4MODE_MOM)
-    USE MAM_DRIV_MOD,    ONLY  : MAM_OPT_to_RRTMG
+    USE MAM_DRIV_MOD,    ONLY  : MAM_OPT_to_RRTMG, MAM_OPT_to_PHOTOL
 #endif
     IMPLICIT NONE
 !
@@ -2040,11 +2040,19 @@ CONTAINS
     ENDDO !End loop over NWVS
 
 #ifdef RRTMG
-#if ( defined(MODAL_AERO_4MODE_MOM) )    
+#if ( defined(MODAL_AERO_4MODE_MOM) )
 ! should be revisited when improving logical flow between aerosol options
    call MAM_OPT_to_RRTMG (Input_Opt,  State_Chm,  State_Diag, &
-                               State_Grid) 
+                               State_Grid)
 #endif
+#endif
+
+#if ( defined(MODAL_AERO_4MODE_MOM) )
+    ! Replace legacy aerosol optical depths in ODAER with MAM values for
+    ! Fast-JX photolysis.  Only needed on the ODSWITCH=0 call (1000 nm).
+    IF ( ODSWITCH == 0 ) THEN
+       CALL MAM_OPT_to_PHOTOL( Input_Opt, State_Chm, State_Grid )
+    END IF
 #endif
 
     !==============================================================

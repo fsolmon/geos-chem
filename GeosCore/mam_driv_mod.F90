@@ -29,7 +29,8 @@ PRIVATE
 
 !PUBLIC MEMBER FUNCTIONS:
 
-PUBLIC :: MAM_DRIV, MAM_INIT, MAM_APPLY_RAINOUT_EFF, MAM_OPT_to_RRTMG, MAM_ACTIVATE_EVAP
+PUBLIC :: MAM_DRIV, MAM_INIT, MAM_APPLY_RAINOUT_EFF, MAM_OPT_to_RRTMG, MAM_ACTIVATE_EVAP, &
+          MAM_OPT_to_PHOTOL
 
 ! !REMARKS:
 !  The MAM model was designed and developed for implementation into GEOS-Chem
@@ -129,7 +130,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
                                lptr_nh4_a_amode,lptr_no3_a_amode,&
                                lptr_ca_a_amode,lptr_cl_a_amode,&
                                lptr_co3_a_amode,lptr_mom_a_amode,   &
-                               modeptr_accum, alnsg_amode, voltonumb_amode, &
+                               modeptr_accum, modeptr_aitken,alnsg_amode, voltonumb_amode, &
                                ntot_amode
     USE modal_aero_initialize_data, only: MAM_cold_start 
     USE modal_aero_calcsize, only: modal_aero_calcsize_sub
@@ -265,17 +266,24 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
      CALL MAM_cold_start (physta)
      ! mdo_coldstart initialies in Mam_cold_start 
      if (mdo_coldstart == 1 .and. masterproc) print*, 'MAM q from namelist in coldstart '
-!    DO L = 1, State_Grid%NZ
-!    DO J = 1, State_Grid%NY
-!    DO I = 1, State_Grid%NX ! 
-!      n = J + (I-1)*State_Grid%NY
+     DO L = 1, State_Grid%NZ
+     DO J = 1, State_Grid%NY
+     DO I = 1, State_Grid%NX ! 
+       n = J + (I-1)*State_Grid%NY
 !FAB  try something temporary 
- !     physta%q(n,l,lptr_so4_a_amode(1)) = Spc(IND_('SO4'))%Conc(I,J,L)/State_Met%AD(I,J,L)
- !     physta%q(n,l,numptr_amode(1)) =    physta%q(n,l,lptr_so4_a_amode(1)) /1700. * voltonumb_amode(1)
+       physta%q(n,l,lptr_so4_a_amode(1)) = Spc(IND_('SO4'))%Conc(I,J,L)/State_Met%AD(I,J,L)
+       physta%q(n,l,numptr_amode(1)) =    physta%q(n,l,lptr_so4_a_amode(1)) /1700. * voltonumb_amode(1)
+
+       physta%q(n,l,lptr_no3_a_amode(1)) = Spc(IND_('NIT'))%Conc(I,J,L)/State_Met%AD(I,J,L)
+       physta%q(n,l,numptr_amode(1)) =   physta%q(n,l,numptr_amode(1))+  physta%q(n,l,lptr_no3_a_amode(1)) /1700. * voltonumb_amode(1)
+       
+       physta%q(n,l,lptr_nh4_a_amode(1)) = Spc(IND_('NH4'))%Conc(I,J,L)/State_Met%AD(I,J,L)
+       physta%q(n,l,numptr_amode(1)) =   physta%q(n,l,numptr_amode(1))+  physta%q(n,l,lptr_nh4_a_amode(1)) /1700. * voltonumb_amode(1)
+
 !      Spc(IND_('MAMDEV'))%Conc(I,J,L) = Spc(IND_('SO4'))%Conc(I,J,L)
-!    END DO
-!    END DO
-!    END DO
+    END DO
+    END DO
+    END DO
     ENDIF
 
 
@@ -361,6 +369,8 @@ CALL load_pbuf( pbuf, lchnk, pcols, &
      CALL unload_pbuf( pbuf, lchnk, pcols, &
          physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens,physta%hygro )
 
+
+
 !-------------------------------------------------------------------------------- 
 ! switch from q & qqcw mass mixing ratios to volume mixing ratios  vmr and vmrcw
 ! only adress the gas/aerosol variables in q, qqcw 
@@ -397,6 +407,8 @@ CALL load_pbuf( pbuf, lchnk, pcols, &
                                    physta%paqso4(1:pcols,1:pver)*mwdry/adv_mass(l2)*deltat
       END IF
 
+
+
 !------------------------------
   IF(.true.) then ! .and. masterproc ) then
      CALL modal_aero_amicphys_intr(               &
@@ -419,6 +431,7 @@ CALL load_pbuf( pbuf, lchnk, pcols, &
     END IF
 ! vmr and vmrcw have been updated in modal_aero_amicphys_intr
 
+
 ! if not cb_sim, apply aqueous SO4 production after gas-aerosol exchange so it does not
 ! feed into condensation/renaming/nucleation (it was produced in cloud droplets,
 ! not in the interstitial phase)
@@ -435,7 +448,11 @@ CALL load_pbuf( pbuf, lchnk, pcols, &
          physta%q(    1:pcols,1:pver,l)  = vmr(  1:pcols,1:pver,l2) * adv_mass(l2)/mwdry 
          physta%qqcw( 1:pcols,1:pver,l)  = vmrcw(1:pcols,1:pver,l2) * adv_mass(l2)/mwdry
       END DO
-! 
+
+
+      
+      
+ ! 
 ! calculate optical properties 
       IF(.true.) then 
        call  mam_aero_sw(physta, tauxar, wa, ga, fa, mamoptdiag)
@@ -517,8 +534,8 @@ IF(1==1) THEN
                                 physta%q(n,L,numptr_amode(m))*State_Met%AIRDEN(I,J,L)
         ! modal mass concentrations in Kg.m-3  
         IF(lptr_so4_a_amode(m) > 0 ) State_Chm%GCMAM(m)%so4(I,J,L) =              & 
-                                physta%q(n,L,lptr_so4_a_amode(m))*State_Met%AIRDEN(I,J,L) &
-                              + physta%qqcw(n,L,lptr_so4_a_amode(m))*State_Met%AIRDEN(I,J,L) 
+                                physta%q(n,L,lptr_so4_a_amode(m))*State_Met%AIRDEN(I,J,L) 
+        !  + physta%qqcw(n,L,lptr_so4_a_amode(m))*State_Met%AIRDEN(I,J,L) 
                         !  
         !FAB TEMP add the cloud borne sulf to chm state for diag // change that once 
         ! transfer from qqcw to q is properly trated !!
@@ -1803,6 +1820,83 @@ SUBROUTINE MAM_OPT_to_RRTMG( Input_Opt,  State_Chm,  State_Diag, &
 
 
 
+
+!------------------------------------------------------------------------------
+SUBROUTINE MAM_OPT_to_PHOTOL( Input_Opt, State_Chm, State_Grid )
+!
+! Replace ODAER and ODMDUST at 1000 nm (Fast-JX photolysis reference
+! wavelength) with MAM optical depths from mamoptdiag.
+!
+! RDAER fills ODAER slots 1:NRHAER from legacy species masses; RDUST_ONLINE
+! fills ODMDUST(1:NDUST) from standard dust bins.  This routine zeroes both
+! sets and fills ODAER slot 1 with the total MAM extinction optical depth
+! (tauxar summed over all modes).  tauxar already integrates every species in
+! each mode (sulfate, BC, OC, sea salt, dust, ...) so no explicit species
+! mapping is needed and coarse-mode dust is automatically included, avoiding
+! double-counting with ODMDUST.  RDUST_ONLINE still runs for its surface-area
+! and heterogeneous-chemistry outputs; only its optical depth is suppressed.
+!
+! Slot 1 retains the SNA Mie entry for Fast-JX UV spectral scaling — a
+! reasonable bulk aerosol proxy.  Strat aerosol slots (NRHAER+1:NAER) are
+! left untouched; they are filled afterwards by the strat aerosol loop.
+!
+! Precision note: the legacy code looks up Mie coefficients at exactly 1000 nm
+! (one of the 11 discrete wavelengths in the GC aerosol optics dat files).
+! MAM tauxar is a band-average over SW band 8 (8050-12850 cm-1, 778-1242 nm),
+! a broader spectral range.  This is inherent to the MAM optics data structure
+! which is discretised to RRTMG-SW bands, not individual wavelengths.
+!------------------------------------------------------------------------------
+    USE CMN_SIZE_Mod,   ONLY : NRHAER, NDUST
+    USE Input_Opt_Mod,  ONLY : OptInput
+    USE State_Chm_Mod,  ONLY : ChmState
+    USE State_Grid_Mod, ONLY : GrdState
+    USE mam_opt,        ONLY : mamoptdiag
+    USE precision_mod,  ONLY : f8
+
+    TYPE(OptInput), INTENT(IN)    :: Input_Opt
+    TYPE(ChmState), INTENT(INOUT) :: State_Chm
+    TYPE(GrdState), INTENT(IN)    :: State_Grid
+
+    ! Band 8 of the 14 SW bands in the MAM optics data files (8050-12850 cm-1,
+    ! 778-1242 nm).  Fixed by the optics file format; independent of whether
+    ! RRTMG radiation is active at runtime.
+    INTEGER, PARAMETER :: IB_1000 = 8
+
+    REAL(f8), POINTER :: ODAER  (:,:,:,:,:)
+    REAL(f8), POINTER :: ODMDUST(:,:,:,:,:)
+    INTEGER           :: I, J, L, m, n, nmodes, IWV1000
+
+    ODAER   => State_Chm%Phot%ODAER
+    ODMDUST => State_Chm%Phot%ODMDUST
+    IWV1000  = State_Chm%Phot%IWV1000
+    nmodes   = SIZE( mamoptdiag )
+
+    ! Zero legacy hygroscopic and dust optical depths at the 1000-nm index
+    ODAER  (:,:,:,IWV1000,1:NRHAER) = 0.0_f8
+    ODMDUST(:,:,:,IWV1000,1:NDUST)  = 0.0_f8
+
+    ! Accumulate total MAM optical depth (all modes) into slot 1
+    DO m = 1, nmodes
+       !$OMP PARALLEL DO                &
+       !$OMP DEFAULT( SHARED )          &
+       !$OMP PRIVATE( I, J, L, n )     &
+       !$OMP SCHEDULE( DYNAMIC )
+       DO I = 1, State_Grid%NX
+       DO J = 1, State_Grid%NY
+          n = J + ( I - 1 ) * State_Grid%NY
+          DO L = 1, State_Grid%NZ
+             ODAER(I,J,L,IWV1000,1) = ODAER(I,J,L,IWV1000,1) &
+                                     + mamoptdiag(m)%tauxar(n,L,IB_1000)
+          END DO
+       END DO
+       END DO
+       !$OMP END PARALLEL DO
+    END DO
+
+    ODAER   => NULL()
+    ODMDUST => NULL()
+
+END SUBROUTINE MAM_OPT_to_PHOTOL
 
   END MODULE MAM_DRIV_MOD
 !FAB#endif

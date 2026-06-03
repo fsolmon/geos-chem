@@ -37,7 +37,7 @@ MODULE Mam_container_Mod
      REAL(fp), POINTER :: nuwetrad (:,:,:) !------------ wet radius 
      REAL(fp), POINTER :: aerdens(:,:,:) ! aerosol effective density  
      REAL(fp), POINTER :: hygro(:,:,:) ! aerosol hygroscopicity (volume average)
-     REAL(fp), POINTER :: pH(:,:,:)   ! aerosol pH [-3, 14]
+     REAL(fp), POINTER :: hplus(:,:,:) ! aerosol H+ concentration [mol/L]
 
      REAL(fp), POINTER :: aerwat(:,:,:)!mam water mass concentration
      REAL(fp), POINTER :: so4(:,:,:) ! mam so4 mass concentration 
@@ -53,7 +53,8 @@ MODULE Mam_container_Mod
      REAL(fp), POINTER :: cl(:,:,:) ! mam  mass concentration
      REAL(fp), POINTER :: mom(:,:,:) ! mam  mass concentration
    
-     REAL(fp), POINTER :: nu(:,:,:) ! mam number concentration 
+     REAL(fp), POINTER :: nu(:,:,:) ! mam number concentration
+     REAL(fp), POINTER :: saer(:,:,:) ! modal wet surface area [cm2/cm3]
 
      ! Per-mode SW optical properties (all bands).
      ! 4th dimension is nswbands; the mode index is the GCMAM array subscript.
@@ -174,6 +175,15 @@ CONTAINS
     ENDIF
     GCMAM(n)%nuwetrad = 0.1E-6_fp
 
+    ALLOCATE(GCMAM(n)%saer( NX, NY, NZ ), STAT=RC )
+    CALL GC_CheckVar( 'SAER', 0, RC )
+    IF ( RC /= GC_SUCCESS ) THEN
+       errMsg = 'Error allocating array SAER!'
+       CALL GC_Error( errMsg, RC, thisLoc )
+       RETURN
+    ENDIF
+    GCMAM(n)%saer = 0.0_fp
+
     ALLOCATE(GCMAM(n)%dryrad( NX, NY, NZ ), STAT=RC )
     CALL GC_CheckVar( 'DRYRAD', 0, RC )
     IF ( RC /= GC_SUCCESS ) THEN
@@ -212,14 +222,14 @@ CONTAINS
     ENDIF
     GCMAM(n)%hygro = 0.2_fp ! default needs to be fixes for first time step
 
-    ALLOCATE( GCMAM(n)%pH( NX, NY, NZ ), STAT=RC )
-    CALL GC_CheckVar( 'PH', 0, RC )
+    ALLOCATE( GCMAM(n)%hplus( NX, NY, NZ ), STAT=RC )
+    CALL GC_CheckVar( 'HPLUS', 0, RC )
     IF ( RC /= GC_SUCCESS ) THEN
-       errMsg = 'Error allocating array PH!'
+       errMsg = 'Error allocating array HPLUS!'
        CALL GC_Error( errMsg, RC, thisLoc )
        RETURN
     ENDIF
-    GCMAM(n)%pH = 7._fp
+    GCMAM(n)%hplus = 1.0e-7_fp
 
    ALLOCATE( GCMAM(n)%aerwat( NX, NY, NZ ), STAT=RC )
     CALL GC_CheckVar( 'AERWAT', 0, RC )
@@ -487,11 +497,11 @@ CONTAINS
        GCMAM(n)%hygro => NULL()
      ENDIF
 
-     IF ( ASSOCIATED(GCMAM(n)%pH ) ) THEN
-       DEALLOCATE( GCMAM(n)%pH, STAT=RC )
-       CALL GC_CheckVar( 'MAM%pH', 2, RC )
+     IF ( ASSOCIATED(GCMAM(n)%hplus ) ) THEN
+       DEALLOCATE( GCMAM(n)%hplus, STAT=RC )
+       CALL GC_CheckVar( 'MAM%hplus', 2, RC )
        IF ( RC /= GC_SUCCESS ) RETURN
-       GCMAM(n)%pH => NULL()
+       GCMAM(n)%hplus => NULL()
      ENDIF
 
      IF ( ASSOCIATED(GCMAM(n)%aerwat ) ) THEN

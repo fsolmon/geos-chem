@@ -8858,7 +8858,7 @@ CONTAINS
            diagFlag       = 'M',                                            &
            RC             = RC                                             )
 
-       diagID  = 'MamPH'
+       diagID  = 'Mamhplus'
        CALL Init_and_Register(                                               &
             Input_Opt      = Input_Opt,                                      &
             State_Chm      = State_Chm,                                      &
@@ -13975,7 +13975,7 @@ CALL Finalize( diagId   = 'Mamhygro',                                &
                RC       = RC                                            )
 IF ( RC /= GC_SUCCESS ) RETURN
 
-    CALL Finalize( diagId   = 'MamPH',                               &
+    CALL Finalize( diagId   = 'Mamhplus',                            &
                    Ptr2Data = State_Diag%MamPH,                      &
                    mapData  = State_Diag%Map_MamPH,                  &
                    RC       = RC                                            )
@@ -16791,9 +16791,9 @@ IF ( RC /= GC_SUCCESS ) RETURN
       IF ( isRank    ) Rank  =  3
       IF ( isTagged  ) TagId = 'MAMMODE'
 
-   ELSE IF ( TRIM( Name_AllCaps ) == 'MAMPH' ) THEN
-      IF ( isDesc    ) Desc  = 'pH of aerosol'
-      IF ( isUnits   ) Units = '1'
+   ELSE IF ( TRIM( Name_AllCaps ) == 'MAMHPLUS' ) THEN
+      IF ( isDesc    ) Desc  = 'Aerosol H+ concentration'
+      IF ( isUnits   ) Units = 'mol L-1'
       IF ( isRank    ) Rank  =  3
       IF ( isTagged  ) TagId = 'MAMMODE'
 

@@ -56,6 +56,9 @@ CONTAINS
 !
     USE AEROSOL_MOD,      ONLY : AEROSOL_CONC
     USE AEROSOL_MOD,      ONLY : RDAER
+#if defined(MODAL_AERO_4MODE_MOM)
+    USE MAM_DRIV_MOD,     ONLY : MAM_to_HETRATES
+#endif
     USE CARBON_MOD,       ONLY : CHEMCARBON
     USE Carbon_Gases_Mod, ONLY : Chem_Carbon_Gases
     USE Diagnostics_Mod,  ONLY : Compute_Budget_Diagnostics
@@ -331,6 +334,13 @@ CONTAINS
                 RETURN
              ENDIF
           ENDIF
+
+#if defined(MODAL_AERO_4MODE_MOM)
+          ! Replace legacy aerosol surface areas with MAM modal wet surface
+          ! areas for heterogeneous chemistry.  Called after both RDAER and
+          ! RDust_Online so it has the final word before Do_FullChem/KPP.
+          CALL MAM_to_HETRATES( Input_Opt, State_Chm, State_Grid, State_Met )
+#endif
 
           !------------------------------------------------------------------
           ! Dry-run sulfate chem to get cloud pH

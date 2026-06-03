@@ -30,7 +30,7 @@ PRIVATE
 !PUBLIC MEMBER FUNCTIONS:
 
 PUBLIC :: MAM_DRIV, MAM_INIT, MAM_APPLY_RAINOUT_EFF, MAM_OPT_to_RRTMG, MAM_ACTIVATE_EVAP, &
-          MAM_OPT_to_PHOTOL
+          MAM_OPT_to_PHOTOL, MAM_to_HETRATES
 
 ! !REMARKS:
 !  The MAM model was designed and developed for implementation into GEOS-Chem
@@ -182,7 +182,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       real(r8)  :: ga(pcols,pver,nswbands)      ! aerosol asymmetry parameter * wa
       real(r8)  :: fa(pcols,pver,nswbands)      ! aerosol forward scattered fraction * ga
       real(r8) :: taux_lw(pcols,pver,nlwbands)
-      real(r8) :: pH_aer_out(pcols,pver,ntot_amode)
+      real(r8) :: hplus_aer_out(pcols,pver,ntot_amode)
       real(r8) :: relhum_loc(pcols,pver)   ! clear-sky RH for wateruptake
       !-------------
       INTEGER :: latndx(pcols),lonndx(pcols)                 !required by the mam interface
@@ -427,7 +427,7 @@ CALL load_pbuf( pbuf, lchnk, pcols, &
 !         dvmrdt_bb,          dvmrcwdt_bb,         &  ! in the interface maybe conssider for diag
          physta%dgncur_a,     physta%dgncur_awet,  &
          physta%wetdens,      physta%qaerwat,             &
-         pH_aer_out = pH_aer_out                          )
+         hplus_aer_out = hplus_aer_out                    )
     END IF
 ! vmr and vmrcw have been updated in modal_aero_amicphys_intr
 
@@ -532,6 +532,14 @@ IF(1==1) THEN
         !modal number concentrations in #.m-3
         State_Chm%GCMAM(m)%Nu(I,J,L) =              &
                                 physta%q(n,L,numptr_amode(m))*State_Met%AIRDEN(I,J,L)
+
+        ! number-based wet surface area [cm2/cm3]
+        ! SA = pi * N[#/m3] * Dgn_wet[m]^2 * exp(2*ln(sg)^2) * 1e-2 (m^-1 -> cm2/cm3)
+        State_Chm%GCMAM(m)%saer(I,J,L) = acos(-1.0_f8)                       &
+                                        * State_Chm%GCMAM(m)%Nu(I,J,L)        &
+                                        * physta%dgncur_awet(n,L,m)**2         &
+                                        * exp(2.0_f8*alnsg_amode(m)**2)        &
+                                        * 1.0e-2_f8
         ! modal mass concentrations in Kg.m-3  
         IF(lptr_so4_a_amode(m) > 0 ) State_Chm%GCMAM(m)%so4(I,J,L) =              & 
                                 physta%q(n,L,lptr_so4_a_amode(m))*State_Met%AIRDEN(I,J,L) 
@@ -579,12 +587,7 @@ IF(1==1) THEN
         State_Chm%GCMAM(m)%tauxar(I,J,L,:) = mamoptdiag(m)%tauxar(n,L,:)
         State_Chm%GCMAM(m)%ssa(I,J,L,:) = mamoptdiag(m)%ssa(n,L,:)
         State_Chm%GCMAM(m)%g(I,J,L,:) = mamoptdiag(m)%g(n,L,:)
-!test
-  !      State_Chm%GCMAM(m)%pH(I,J,L) = pH_aer_out(n,L,m)
-          
-        if(m==1)   State_Chm%GCMAM(m)%pH(I,J,L) = physta%relhum(n,L)
-        if(m==2)   State_Chm%GCMAM(m)%pH(I,J,L) = physta%t(n,L)
-        if(m==3)   State_Chm%GCMAM(m)%pH(I,J,L) = physta%cld(n,L)
+        State_Chm%GCMAM(m)%hplus(I,J,L) = hplus_aer_out(n,L,m)
       END DO
      ENDDO
      ENDDO
@@ -1293,7 +1296,7 @@ USE Input_Opt_Mod,  ONLY : OptInput
           DO m = 1, size(State_Chm%GCMAM)
               iSlot = State_Diag%Map_MamPH%id2slot(m)
               IF (iSlot > 0) &
-                  State_Diag%MamPH(I,J,L,iSlot) = State_Chm%GCMAM(m)%pH(I,J,L)
+                  State_Diag%MamPH(I,J,L,iSlot) = State_Chm%GCMAM(m)%hplus(I,J,L)
           END DO
       ENDIF
 ! aerosol optical properties
@@ -1820,6 +1823,137 @@ SUBROUTINE MAM_OPT_to_RRTMG( Input_Opt,  State_Chm,  State_Diag, &
 
 
 
+
+!------------------------------------------------------------------------------
+SUBROUTINE MAM_to_HETRATES( Input_Opt, State_Chm, State_Grid, State_Met )
+!
+! Replace legacy aerosol fields in State_Chm that feed KPP heterogeneous
+! chemistry with MAM-derived equivalents.  Called from chemistry_mod.F90
+! after RDAER and RDust_Online, under #if defined(MODAL_AERO_4MODE_MOM).
+!
+! Fields overwritten:
+!   AeroArea / WetAeroArea  -- total MAM wet SA in slot NDUST+1 (SNA gamma)
+!   aClArea / aClRadi       -- fine Cl-bearing SA and radius (accum+aitken)
+!                              used as volInorg/Rcore in N2O5_InorgOrg
+!   AeroH2O(NDUST+1)        -- fine-mode aerosol water; sets H%xH2O(SUL)
+!                              which controls N2O5 gamma (wet vs. dry branch)
+!   IsorropHplus(1)         -- accumulation-mode H+ [mol/L]
+!   IsorropAeropH(1)        -- pH = -log10(H+); sets H%H_conc_Sul for
+!                              HOBr/HOCl/ClNO3 het reactions
+!------------------------------------------------------------------------------
+    USE CMN_SIZE_Mod,   ONLY : NDUST, NRHAER
+    USE Input_Opt_Mod,  ONLY : OptInput
+    USE State_Chm_Mod,  ONLY : ChmState
+    USE State_Grid_Mod, ONLY : GrdState
+    USE State_Met_Mod,  ONLY : MetState
+    USE precision_mod,  ONLY : fp
+
+    TYPE(OptInput), INTENT(IN)    :: Input_Opt
+    TYPE(ChmState), INTENT(INOUT) :: State_Chm
+    TYPE(GrdState), INTENT(IN)    :: State_Grid
+    TYPE(MetState), INTENT(IN)    :: State_Met
+
+    REAL(fp), POINTER :: TAREA (:,:,:,:)
+    REAL(fp), POINTER :: WTAREA(:,:,:,:)
+    INTEGER           :: I, J, L, m, nmodes
+
+    TAREA  => State_Chm%AeroArea
+    WTAREA => State_Chm%WetAeroArea
+    nmodes =  SIZE( State_Chm%GCMAM )
+
+    ! Zero legacy surface area slots (dust 1:NDUST and hygroscopic NDUST+1:NDUST+NRHAER)
+    TAREA (:,:,:,1:NDUST+NRHAER) = 0.0_fp
+    WTAREA(:,:,:,1:NDUST+NRHAER) = 0.0_fp
+
+    ! Accumulate total MAM wet surface area into slot NDUST+1 (SNA gamma applies)
+    DO m = 1, nmodes
+       !$OMP PARALLEL DO          &
+       !$OMP DEFAULT( SHARED )    &
+       !$OMP PRIVATE( I, J, L )  &
+       !$OMP SCHEDULE( DYNAMIC )
+       DO I = 1, State_Grid%NX
+       DO J = 1, State_Grid%NY
+       DO L = 1, State_Grid%NZ
+          TAREA (I,J,L,NDUST+1) = TAREA (I,J,L,NDUST+1) + State_Chm%GCMAM(m)%saer(I,J,L)
+          WTAREA(I,J,L,NDUST+1) = WTAREA(I,J,L,NDUST+1) + State_Chm%GCMAM(m)%saer(I,J,L)
+       END DO
+       END DO
+       END DO
+       !$OMP END PARALLEL DO
+    END DO
+
+    TAREA  => NULL()
+    WTAREA => NULL()
+
+    ! -----------------------------------------------------------------------
+    ! aClArea / aClRadi: wet surface area and radius of the fine Cl-bearing
+    ! inorganic aerosol, replacing the legacy SNA+SALA-derived values from
+    ! RDAER.  Passed as volInorg/Rcore to N2O5_InorgOrg in KPP.
+    ! aClArea [cm2/cm3]: accum (mode 1) + aitken (mode 2) wet SA.
+    ! aClRadi [cm]: accum mode volume-mean wet radius (wetrad [m] -> cm).
+    ! -----------------------------------------------------------------------
+    !$OMP PARALLEL DO          &
+    !$OMP DEFAULT( SHARED )    &
+    !$OMP PRIVATE( I, J, L )  &
+    !$OMP SCHEDULE( DYNAMIC )
+    DO I = 1, State_Grid%NX
+    DO J = 1, State_Grid%NY
+    DO L = 1, State_Grid%NZ
+       State_Chm%aClArea(I,J,L) = State_Chm%GCMAM(1)%saer(I,J,L)   &
+                                 + State_Chm%GCMAM(2)%saer(I,J,L)
+       State_Chm%aClRadi(I,J,L) = State_Chm%GCMAM(1)%wetrad(I,J,L) * 1.0e+2_fp
+    END DO
+    END DO
+    END DO
+    !$OMP END PARALLEL DO
+
+    ! -----------------------------------------------------------------------
+    ! AeroH2O(NDUST+1): aerosol liquid water for the SNA-equivalent slot,
+    ! replacing the ISORROPIA value (zero when ISORROPIA is bypassed by
+    ! #ifndef MOSAIC_SPECIES).  Used as H%xH2O(SUL) in N2O5_InorgOrg to
+    ! compute M_H2O and select wet vs. dry gamma branch.
+    ! aerwat [kg/kg] * AIRDEN [kg/m3] * 1000 -> g/m3, consistent with the
+    ! units written by aerosol_thermodynamics_mod (AERLIQ*18 g/m3).
+    ! -----------------------------------------------------------------------
+    !$OMP PARALLEL DO          &
+    !$OMP DEFAULT( SHARED )    &
+    !$OMP PRIVATE( I, J, L )  &
+    !$OMP SCHEDULE( DYNAMIC )
+    DO I = 1, State_Grid%NX
+    DO J = 1, State_Grid%NY
+    DO L = 1, State_Grid%NZ
+       State_Chm%AeroH2O(I,J,L,NDUST+1) =                            &
+            ( State_Chm%GCMAM(1)%aerwat(I,J,L)                       &
+            + State_Chm%GCMAM(2)%aerwat(I,J,L) )                     &
+            * State_Met%AIRDEN(I,J,L) * 1.0e+3_fp
+    END DO
+    END DO
+    END DO
+    !$OMP END PARALLEL DO
+
+    ! -----------------------------------------------------------------------
+    ! IsorropHplus / IsorropAeropH: aerosol H+ and pH from MAM accumulation
+    ! mode, replacing the ISORROPIA values (zero when bypassed).
+    ! IsorropHplus(1) [mol/L] -> H%H_plus in fullchem_HetStateFuncs.
+    ! IsorropAeropH(1) = -log10(H+) -> H%pHSSA(1) -> H%H_conc_Sul used by
+    ! HOBr/HOCl/ClNO3 heterogeneous reactions.
+    ! -----------------------------------------------------------------------
+    !$OMP PARALLEL DO          &
+    !$OMP DEFAULT( SHARED )    &
+    !$OMP PRIVATE( I, J, L )  &
+    !$OMP SCHEDULE( DYNAMIC )
+    DO I = 1, State_Grid%NX
+    DO J = 1, State_Grid%NY
+    DO L = 1, State_Grid%NZ
+       State_Chm%IsorropHplus(I,J,L,1)  = State_Chm%GCMAM(1)%hplus(I,J,L)
+       State_Chm%IsorropAeropH(I,J,L,1) =                            &
+            -LOG10( MAX( State_Chm%GCMAM(1)%hplus(I,J,L), 1.0e-30_fp ) )
+    END DO
+    END DO
+    END DO
+    !$OMP END PARALLEL DO
+
+END SUBROUTINE MAM_to_HETRATES
 
 !------------------------------------------------------------------------------
 SUBROUTINE MAM_OPT_to_PHOTOL( Input_Opt, State_Chm, State_Grid )

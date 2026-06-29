@@ -19,7 +19,7 @@ MODULE MAM_DRIV_MOD
 USE precision_mod, only :r8 => f8, fp, f8  
 USE physics_buffer, only: physics_buffer_desc
 USE physics_types, only : physics_state, physics_ptend
-USE mam_utils, only : masterproc, pcols, pver, l_h2so4g, l_soag, l_hno3g, l_hclg, l_nh3g, iulog
+USE mam_utils, only : masterproc, pcols, pver, l_h2so4g, l_soag, l_hno3g, l_hclg, l_nh3g
 USE constituents, only : pcnst
 use radconstants, only : nswbands, nlwbands
 !
@@ -138,8 +138,6 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
                                       load_pbuf, unload_pbuf
     USE modal_aero_amicphys, only: modal_aero_amicphys_intr
     use mam_opt , only : mam_aero_sw,mam_aero_lw, mamoptdiag
- !FAB test rh
-    use wv_saturation,     only:  qsat 
     !
 ! !INPUT PARAMETERS:
 !
@@ -166,10 +164,6 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
 !
     INTEGER :: I,J,L,S,l2,K,N,M,SIZENUM,MDAY
 
-    ! debug variables for MAM_DEBUG_DRIV test pixel (Netherlands)
-    INTEGER :: Itgt, Jtgt, Ntgt
-    LOGICAL :: FoundTgt
-
     ! Make a pointer to the tracer array
     TYPE(SpcConc), POINTER :: Spc(:)
 
@@ -191,20 +185,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       real(r8) :: hplus_aer_out(pcols,pver,ntot_amode)
       real(r8) :: relhum_loc(pcols,pver)   ! clear-sky RH for wateruptake
       !-------------
-      INTEGER :: latndx(pcols),lonndx(pcols)                 !required by the mam interface
-                                                !not used now potentiall usefull for diags 
-      !FAB test 
-      real(r8) :: ev_sat(pcols,pver)
-      real(r8) :: qv_sat(pcols,pver)
-
-                                          
-      CHARACTER(len=8) :: spcnam
-      ! Box-model print helpers (BEFORE/AFTER &chem_input blocks → iulog)
-      ! idx in bm_m*: 1=SO4,2=BC,3=POM,4=SOA,5=NCL,6=DST,7=MOM,8=NH4,9=NO3,10=CA,11=CO3,12=CL
-      REAL(fp) :: bm_air, bm_adinv, bm_fugm3, bm_fcm3
-      REAL(fp) :: bm_m1(12), bm_m2(12), bm_m3(12), bm_m4(12)
-      REAL(fp) :: bm_tot(4)
-      LOGICAL  :: bm_lopen
+      INTEGER :: latndx(pcols),lonndx(pcols)  ! required by amicphys interface
 !--------------------------------------------------------------------------
 
 
@@ -216,184 +197,8 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     ! Point to Spc
     Spc => State_Chm%Species
 
-    !### MAM_DEBUG_DRIV: locate a single test pixel over the Netherlands and
-    !### print the GC-equivalent interstitial gas + accum-mode aerosol
-    !### tracers before any MAM operations are applied to Spc.
     latndx(:) = 0
     lonndx(:) = 0
-    FoundTgt = .FALSE.
-    NLLOOP1: DO J = 1, State_Grid%NY
-       DO I = 1, State_Grid%NX
-          IF ( State_Grid%XMid(I,J) >= 3.0_fp  .AND. &
-               State_Grid%XMid(I,J) <= 7.0_fp  .AND. &
-               State_Grid%YMid(I,J) >= 50.5_fp .AND. &
-               State_Grid%YMid(I,J) <= 53.5_fp ) THEN
-             Itgt     = I
-             Jtgt     = J
-             FoundTgt = .TRUE.
-             latndx(Jtgt + (Itgt-1)*State_Grid%NY) = 1
-             EXIT NLLOOP1
-          ENDIF
-       ENDDO
-    ENDDO NLLOOP1
-
-    IF ( FoundTgt ) THEN
-       WRITE(6,'(a,2i5)')    'MAM_DEBUG_DRIV BEFORE: I,J     = ', Itgt, Jtgt
-       WRITE(6,'(a,f8.3)')   'MAM_DEBUG_DRIV BEFORE: RH      = ', &
-                              State_Met%RH(Itgt,Jtgt,1)*1.0e-2_fp
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV BEFORE: HNO3    = ', &
-                              Spc(Ind_('HNO3'   ))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV BEFORE: NH3     = ', &
-                              Spc(Ind_('NH3'    ))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV BEFORE: MAMSO41 = ', &
-                              Spc(Ind_('MAMSO41'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV BEFORE: MAMNO31 = ', &
-                              Spc(Ind_('MAMNO31'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV BEFORE: MAMNH41 = ', &
-                              Spc(Ind_('MAMNH41'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV BEFORE: MAMCBSO41 = ', &
-                              Spc(Ind_('MAMCBSO41'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV BEFORE: MAMCBNO31 = ', &
-                              Spc(Ind_('MAMCBNO31'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV BEFORE: MAMCBNH41 = ', &
-                              Spc(Ind_('MAMCBNH41'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV BEFORE: MAMNO33 = ', &
-                              Spc(Ind_('MAMNO33'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV BEFORE: MAMCBNO33 = ', &
-                              Spc(Ind_('MAMCBNO33'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV BEFORE: MAMSO42 = ', &
-                              Spc(Ind_('MAMSO42'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV BEFORE: MAMSO43 = ', &
-                              Spc(Ind_('MAMSO43'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV BEFORE: MAMCBSO42 = ', &
-                              Spc(Ind_('MAMCBSO42'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV BEFORE: MAMCBSO43 = ', &
-                              Spc(Ind_('MAMCBSO43'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV BEFORE: MAMNH42 = ', &
-                              Spc(Ind_('MAMNH42'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV BEFORE: MAMNO32 = ', &
-                              Spc(Ind_('MAMNO32'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV BEFORE: MAMNH43 = ', &
-                              Spc(Ind_('MAMNH43'))%Conc(Itgt,Jtgt,1)
-    ENDIF
-
-    !### MAM_BOXMODEL BEFORE: &chem_input namelist for box-model testing
-    !### Gas [PPB], met (RH,T), aerosol composition (mf + numc) — all from Spc
-    IF ( FoundTgt ) THEN
-       bm_air   = State_Met%AIRDEN(Itgt,Jtgt,1)
-       bm_adinv = 1.0_fp / State_Met%AD(Itgt,Jtgt,1)
-       bm_fugm3 = bm_air * bm_adinv * 1.0e9_fp    ! [kg/gridbox] → [µg/m3]
-       bm_fcm3  = bm_air * bm_adinv * 1.0e-6_fp   ! [#/gridbox]  → [#/cm3]
-       bm_m1 = 0.0_fp ; bm_m2 = 0.0_fp ; bm_m3 = 0.0_fp ; bm_m4 = 0.0_fp
-       bm_m1(1)  = Spc(Ind_('MAMSO41' ))%Conc(Itgt,Jtgt,1)
-       bm_m1(2)  = Spc(Ind_('MAMBC1'  ))%Conc(Itgt,Jtgt,1)
-       bm_m1(3)  = Spc(Ind_('MAMPOM1' ))%Conc(Itgt,Jtgt,1)
-       bm_m1(4)  = Spc(Ind_('MAMSOA1' ))%Conc(Itgt,Jtgt,1)
-       bm_m1(5)  = Spc(Ind_('MAMSSLT1'))%Conc(Itgt,Jtgt,1) ! Na+ (MW=22.99, already ionic mass)
-       bm_m1(6)  = Spc(Ind_('MAMDUST1'))%Conc(Itgt,Jtgt,1)
-       bm_m1(7)  = Spc(Ind_('MAMMOM1' ))%Conc(Itgt,Jtgt,1)
-       bm_m1(8)  = Spc(Ind_('MAMNH41' ))%Conc(Itgt,Jtgt,1)
-       bm_m1(9)  = Spc(Ind_('MAMNO31' ))%Conc(Itgt,Jtgt,1)
-       bm_m1(10) = Spc(Ind_('MAMCA1'  ))%Conc(Itgt,Jtgt,1)
-       bm_m1(11) = Spc(Ind_('MAMCO31' ))%Conc(Itgt,Jtgt,1)
-       bm_m1(12) = Spc(Ind_('MAMCL1'  ))%Conc(Itgt,Jtgt,1)
-       bm_m2(1)  = Spc(Ind_('MAMSO42' ))%Conc(Itgt,Jtgt,1) ! no BC2, POM2
-       bm_m2(4)  = Spc(Ind_('MAMSOA2' ))%Conc(Itgt,Jtgt,1)
-       bm_m2(5)  = Spc(Ind_('MAMSSLT2'))%Conc(Itgt,Jtgt,1) ! Na+ (MW=22.99, already ionic mass)
-       bm_m2(6)  = Spc(Ind_('MAMDUST2'))%Conc(Itgt,Jtgt,1)
-       bm_m2(7)  = Spc(Ind_('MAMMOM2' ))%Conc(Itgt,Jtgt,1)
-       bm_m2(8)  = Spc(Ind_('MAMNH42' ))%Conc(Itgt,Jtgt,1)
-       bm_m2(9)  = Spc(Ind_('MAMNO32' ))%Conc(Itgt,Jtgt,1)
-       bm_m2(10) = Spc(Ind_('MAMCA2'  ))%Conc(Itgt,Jtgt,1)
-       bm_m2(11) = Spc(Ind_('MAMCO32' ))%Conc(Itgt,Jtgt,1)
-       bm_m2(12) = Spc(Ind_('MAMCL2'  ))%Conc(Itgt,Jtgt,1)
-       bm_m3(1)  = Spc(Ind_('MAMSO43' ))%Conc(Itgt,Jtgt,1)
-       bm_m3(2)  = Spc(Ind_('MAMBC3'  ))%Conc(Itgt,Jtgt,1)
-       bm_m3(3)  = Spc(Ind_('MAMPOM3' ))%Conc(Itgt,Jtgt,1)
-       bm_m3(4)  = Spc(Ind_('MAMSOA3' ))%Conc(Itgt,Jtgt,1)
-       bm_m3(5)  = Spc(Ind_('MAMSSLT3'))%Conc(Itgt,Jtgt,1) ! Na+ (MW=22.99, already ionic mass)
-       bm_m3(6)  = Spc(Ind_('MAMDUST3'))%Conc(Itgt,Jtgt,1)
-       bm_m3(7)  = Spc(Ind_('MAMMOM3' ))%Conc(Itgt,Jtgt,1)
-       bm_m3(8)  = Spc(Ind_('MAMNH43' ))%Conc(Itgt,Jtgt,1)
-       bm_m3(9)  = Spc(Ind_('MAMNO33' ))%Conc(Itgt,Jtgt,1)
-       bm_m3(10) = Spc(Ind_('MAMCA3'  ))%Conc(Itgt,Jtgt,1)
-       bm_m3(11) = Spc(Ind_('MAMCO33' ))%Conc(Itgt,Jtgt,1)
-       bm_m3(12) = Spc(Ind_('MAMCL3'  ))%Conc(Itgt,Jtgt,1)
-       bm_m4(2)  = Spc(Ind_('MAMBC4'  ))%Conc(Itgt,Jtgt,1) ! no SO44,SOA4,NCL4,DST4,NH44,NO34,CA4,CO34,CL4
-       bm_m4(3)  = Spc(Ind_('MAMPOM4' ))%Conc(Itgt,Jtgt,1)
-       bm_m4(7)  = Spc(Ind_('MAMMOM4' ))%Conc(Itgt,Jtgt,1)
-       bm_tot(1) = MAX(SUM(bm_m1), 1.0e-30_fp)
-       bm_tot(2) = MAX(SUM(bm_m2), 1.0e-30_fp)
-       bm_tot(3) = MAX(SUM(bm_m3), 1.0e-30_fp)
-       bm_tot(4) = MAX(SUM(bm_m4), 1.0e-30_fp)
-       ! init only opens iulog on masterproc; other ranks append to same file
-       INQUIRE(UNIT=iulog, OPENED=bm_lopen)
-       IF (.NOT. bm_lopen) OPEN(UNIT=iulog, FILE='mam.log', &
-           STATUS='UNKNOWN', ACTION='WRITE', POSITION='APPEND')
-       WRITE(iulog,'(a,i6)') '&chem_input  ! MAM_DRIV step', mamstep
-       WRITE(iulog,'(a,4(es12.4,a))') 'numc = ', &
-           Spc(Ind_('MAMNu1'))%Conc(Itgt,Jtgt,1)*bm_fcm3, ',', &
-           Spc(Ind_('MAMNu2'))%Conc(Itgt,Jtgt,1)*bm_fcm3, ',', &
-           Spc(Ind_('MAMNu3'))%Conc(Itgt,Jtgt,1)*bm_fcm3, ',', &
-           Spc(Ind_('MAMNu4'))%Conc(Itgt,Jtgt,1)*bm_fcm3, ''
-       WRITE(iulog,'(a,4(es12.4,a))') 'ctot = ', &
-           bm_tot(1)*bm_fugm3,',', bm_tot(2)*bm_fugm3,',', bm_tot(3)*bm_fugm3,',', bm_tot(4)*bm_fugm3,''
-       WRITE(iulog,'(a,4(es12.4,a))') 'cso4 = ', bm_m1(1)*bm_fugm3,',', bm_m2(1)*bm_fugm3,',', bm_m3(1)*bm_fugm3,',', bm_m4(1)*bm_fugm3,''
-       WRITE(iulog,'(a,4(es12.4,a))') 'cpom = ', bm_m1(3)*bm_fugm3,',', bm_m2(3)*bm_fugm3,',', bm_m3(3)*bm_fugm3,',', bm_m4(3)*bm_fugm3,''
-       WRITE(iulog,'(a,4(es12.4,a))') 'csoa = ', bm_m1(4)*bm_fugm3,',', bm_m2(4)*bm_fugm3,',', bm_m3(4)*bm_fugm3,',', bm_m4(4)*bm_fugm3,''
-       WRITE(iulog,'(a,4(es12.4,a))') 'cbc = ',  bm_m1(2)*bm_fugm3,',', bm_m2(2)*bm_fugm3,',', bm_m3(2)*bm_fugm3,',', bm_m4(2)*bm_fugm3,''
-       WRITE(iulog,'(a,4(es12.4,a))') 'cdst = ', bm_m1(6)*bm_fugm3,',', bm_m2(6)*bm_fugm3,',', bm_m3(6)*bm_fugm3,',', bm_m4(6)*bm_fugm3,''
-       WRITE(iulog,'(a,4(es12.4,a))') 'cncl = ', bm_m1(5)*bm_fugm3,',', bm_m2(5)*bm_fugm3,',', bm_m3(5)*bm_fugm3,',', bm_m4(5)*bm_fugm3,''
-       WRITE(iulog,'(a,4(es12.4,a))') 'cno3 = ', bm_m1(9)*bm_fugm3,',', bm_m2(9)*bm_fugm3,',', bm_m3(9)*bm_fugm3,',', bm_m4(9)*bm_fugm3,''
-       WRITE(iulog,'(a,4(es12.4,a))') 'cnh4 = ', bm_m1(8)*bm_fugm3,',', bm_m2(8)*bm_fugm3,',', bm_m3(8)*bm_fugm3,',', bm_m4(8)*bm_fugm3,''
-       WRITE(iulog,'(a,4(es12.4,a))') 'cco3 = ', bm_m1(11)*bm_fugm3,',', bm_m2(11)*bm_fugm3,',', bm_m3(11)*bm_fugm3,',', bm_m4(11)*bm_fugm3,''
-       WRITE(iulog,'(a,4(es12.4,a))') 'cca = ',  bm_m1(10)*bm_fugm3,',', bm_m2(10)*bm_fugm3,',', bm_m3(10)*bm_fugm3,',', bm_m4(10)*bm_fugm3,''
-       WRITE(iulog,'(a,4(es12.4,a))') 'ccl = ',  bm_m1(12)*bm_fugm3,',', bm_m2(12)*bm_fugm3,',', bm_m3(12)*bm_fugm3,',', bm_m4(12)*bm_fugm3,''
-       WRITE(iulog,'(a,4(f8.4,a))') 'mfso4 = ', &
-           bm_m1(1)/bm_tot(1),',', bm_m2(1)/bm_tot(2),',', bm_m3(1)/bm_tot(3),',', bm_m4(1)/bm_tot(4),''
-       WRITE(iulog,'(a,4(f8.4,a))') 'mfpom = ', &
-           bm_m1(3)/bm_tot(1),',', bm_m2(3)/bm_tot(2),',', bm_m3(3)/bm_tot(3),',', bm_m4(3)/bm_tot(4),''
-       WRITE(iulog,'(a,4(f8.4,a))') 'mfsoa = ', &
-           bm_m1(4)/bm_tot(1),',', bm_m2(4)/bm_tot(2),',', bm_m3(4)/bm_tot(3),',', bm_m4(4)/bm_tot(4),''
-       WRITE(iulog,'(a,4(f8.4,a))') 'mfbc = ', &
-           bm_m1(2)/bm_tot(1),',', bm_m2(2)/bm_tot(2),',', bm_m3(2)/bm_tot(3),',', bm_m4(2)/bm_tot(4),''
-       WRITE(iulog,'(a,4(f8.4,a))') 'mfdst = ', &
-           bm_m1(6)/bm_tot(1),',', bm_m2(6)/bm_tot(2),',', bm_m3(6)/bm_tot(3),',', bm_m4(6)/bm_tot(4),''
-       WRITE(iulog,'(a,4(f8.4,a))') 'mfncl = ', &
-           bm_m1(5)/bm_tot(1),',', bm_m2(5)/bm_tot(2),',', bm_m3(5)/bm_tot(3),',', bm_m4(5)/bm_tot(4),''
-       WRITE(iulog,'(a,4(f8.4,a))') 'mfno3 = ', &
-           bm_m1(9)/bm_tot(1),',', bm_m2(9)/bm_tot(2),',', bm_m3(9)/bm_tot(3),',', bm_m4(9)/bm_tot(4),''
-       WRITE(iulog,'(a,4(f8.4,a))') 'mfnh4 = ', &
-           bm_m1(8)/bm_tot(1),',', bm_m2(8)/bm_tot(2),',', bm_m3(8)/bm_tot(3),',', bm_m4(8)/bm_tot(4),''
-       WRITE(iulog,'(a,4(f8.4,a))') 'mfco3 = ', &
-           bm_m1(11)/bm_tot(1),',', bm_m2(11)/bm_tot(2),',', bm_m3(11)/bm_tot(3),',', bm_m4(11)/bm_tot(4),''
-       WRITE(iulog,'(a,4(f8.4,a))') 'mfca = ', &
-           bm_m1(10)/bm_tot(1),',', bm_m2(10)/bm_tot(2),',', bm_m3(10)/bm_tot(3),',', bm_m4(10)/bm_tot(4),''
-       WRITE(iulog,'(a,4(f8.4,a))') 'mfcl = ', &
-           bm_m1(12)/bm_tot(1),',', bm_m2(12)/bm_tot(2),',', bm_m3(12)/bm_tot(3),',', bm_m4(12)/bm_tot(4),''
-       WRITE(iulog,'(a,es14.6,a)') 'qso2          = ', &
-           Spc(Ind_('SO2'  ))%Conc(Itgt,Jtgt,1)*bm_adinv*(mwdry/64.06_fp)*1.0e9_fp,','
-       WRITE(iulog,'(a,es14.6,a)') 'qh2so4        = ', &
-           Spc(Ind_('H2SO4'))%Conc(Itgt,Jtgt,1)*bm_adinv*(mwdry/98.08_fp)*1.0e9_fp,','
-       WRITE(iulog,'(a,es14.6,a)') 'qsoag         = ', &
-           Spc(Ind_('SOAP' ))%Conc(Itgt,Jtgt,1)*bm_adinv*(mwdry/150.0_fp)*1.0e9_fp,','
-       WRITE(iulog,'(a,es14.6,a)') 'qhno3         = ', &
-           Spc(Ind_('HNO3' ))%Conc(Itgt,Jtgt,1)*bm_adinv*(mwdry/63.01_fp)*1.0e9_fp,','
-       WRITE(iulog,'(a,es14.6,a)') 'qnh3          = ', &
-           Spc(Ind_('NH3'  ))%Conc(Itgt,Jtgt,1)*bm_adinv*(mwdry/17.04_fp)*1.0e9_fp,','
-       WRITE(iulog,'(a,es14.6)')   'qhcl          = ', &
-           Spc(Ind_('HCL'  ))%Conc(Itgt,Jtgt,1)*bm_adinv*(mwdry/36.45_fp)*1.0e9_fp
-       WRITE(iulog,'(a,f8.4)')    'rh            = ', State_Met%RH(Itgt,Jtgt,1)*1.0e-2_fp
-       WRITE(iulog,'(a,f8.2)')    'temp          = ', State_Met%T(Itgt,Jtgt,1)
-       WRITE(iulog,'(a,f10.2)')   'pmid          = ', State_Met%PMID(Itgt,Jtgt,1)*100.0_fp
-       ! qaerwat from previous step (State_Chm persists between steps; 0 on step 1)
-       WRITE(iulog,'(a,4(es12.4,a))') 'qaerwat = ', &
-           State_Chm%GCMAM(1)%aerwat(Itgt,Jtgt,1) * bm_air * (18.015_fp/mwdry) * 1.0e9_fp, ',', &
-           State_Chm%GCMAM(2)%aerwat(Itgt,Jtgt,1) * bm_air * (18.015_fp/mwdry) * 1.0e9_fp, ',', &
-           State_Chm%GCMAM(3)%aerwat(Itgt,Jtgt,1) * bm_air * (18.015_fp/mwdry) * 1.0e9_fp, ',', &
-           State_Chm%GCMAM(4)%aerwat(Itgt,Jtgt,1) * bm_air * (18.015_fp/mwdry) * 1.0e9_fp, ''
-       WRITE(iulog,'(a)') '/'
-    ENDIF
 
 !     if (masterproc) then
 
@@ -551,37 +356,21 @@ CALL load_pbuf( pbuf, lchnk, pcols, &
      CALL load_pbuf( pbuf, lchnk, pcols, &
         physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens, physta%hygro )
 !
-     ! FAB: use grid-cell mean RH (consistent with amicphys fix).
-     ! Original clear-sky formula (rh-fcld)/(1-fcld) 
-!     do l = 1, pver
-!       do n = 1, pcols
-!         if (physta%cld(n,l) < 1.0_r8) then
-!           relhum_loc(n,l) = max( 0.0_r8, &
-!              (physta%relhum(n,l) - physta%cld(n,l)) / (1.0_r8 - physta%cld(n,l)) )
-!         else
-!           relhum_loc(n,l) = 0.0_r8
-!         end if
-!       end do
-!     end do
-
+     ! Clear-sky RH for water uptake: RH_clear = (RH_mean - fcld) / (1 - fcld)
      do l = 1, pver
        do n = 1, pcols
-         relhum_loc(n,l) = max( 0.0_r8, min( 1.0_r8, physta%relhum(n,l) ) )
+         if (physta%cld(n,l) < 1.0_r8) then
+           relhum_loc(n,l) = max( 0.0_r8, &
+              (physta%relhum(n,l) - physta%cld(n,l)) / (1.0_r8 - physta%cld(n,l)) )
+         else
+           relhum_loc(n,l) = 0.0_r8
+         end if
        end do
      end do
      CALL modal_aero_wateruptake_dr( physta, pbuf, deltat, mamstep, clear_rh_in = relhum_loc)
      
      CALL unload_pbuf( pbuf, lchnk, pcols, &
          physta%cld, physta%qqcw, physta%dgncur_a, physta%dgncur_awet,  physta%qaerwat, physta%wetdens,physta%hygro )
-
-    ! Print aerosol water after wateruptake — actual value going into amicphys/MOSAIC [µg H2O/m3]
-    IF ( FoundTgt ) THEN
-       WRITE(iulog,'(a,4(es12.4,a))') 'qaerwat_in = ', &
-           physta%qaerwat(Jtgt+(Itgt-1)*State_Grid%NY,1,1), ',', &
-           physta%qaerwat(Jtgt+(Itgt-1)*State_Grid%NY,1,2), ',', &
-           physta%qaerwat(Jtgt+(Itgt-1)*State_Grid%NY,1,3), ',', &
-           physta%qaerwat(Jtgt+(Itgt-1)*State_Grid%NY,1,4), ''
-    END IF
 
 !--------------------------------------------------------------------------------
 ! switch from q & qqcw mass mixing ratios to volume mixing ratios  vmr and vmrcw
@@ -709,152 +498,6 @@ CALL load_pbuf( pbuf, lchnk, pcols, &
       ENDDO
       ENDDO
       ENDDO
-
-    !### MAM_DEBUG_DRIV: print the same interstitial species after the MAM
-    !### microphysics update (amicphys + optics), before gravitational
-    !### settling and activation/evaporation transfer to/from the
-    !### cloud-borne state -- so this reflects interstitial aerosol
-    !### microphysics only.
-    IF ( FoundTgt ) THEN
-       WRITE(6,'(a,2i5)')    'MAM_DEBUG_DRIV AFTER:  I,J     = ', Itgt, Jtgt
-       WRITE(6,'(a,f8.3)')   'MAM_DEBUG_DRIV AFTER:  RH      = ', &
-                              State_Met%RH(Itgt,Jtgt,1)*1.0e-2_fp
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  HNO3    = ', &
-                              Spc(Ind_('HNO3'   ))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  NH3     = ', &
-                              Spc(Ind_('NH3'    ))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  MAMSO41 = ', &
-                              Spc(Ind_('MAMSO41'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  MAMNO31 = ', &
-                              Spc(Ind_('MAMNO31'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  MAMNH41 = ', &
-                              Spc(Ind_('MAMNH41'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  MAMCBSO41 = ', &
-                              Spc(Ind_('MAMCBSO41'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  MAMCBNO31 = ', &
-                              Spc(Ind_('MAMCBNO31'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  MAMCBNH41 = ', &
-                              Spc(Ind_('MAMCBNH41'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  MAMNO33 = ', &
-                              Spc(Ind_('MAMNO33'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  MAMCBNO33 = ', &
-                              Spc(Ind_('MAMCBNO33'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  MAMSO42 = ', &
-                              Spc(Ind_('MAMSO42'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  MAMSO43 = ', &
-                              Spc(Ind_('MAMSO43'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  MAMCBSO42 = ', &
-                              Spc(Ind_('MAMCBSO42'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  MAMCBSO43 = ', &
-                              Spc(Ind_('MAMCBSO43'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  MAMNH42 = ', &
-                              Spc(Ind_('MAMNH42'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  MAMNO32 = ', &
-                              Spc(Ind_('MAMNO32'))%Conc(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  MAMNH43 = ', &
-                              Spc(Ind_('MAMNH43'))%Conc(Itgt,Jtgt,1)
-    ENDIF
-
-    !### MAM_DEBUG_DRIV: accumulation-mode number concentration and the
-    !### resulting dry/wet diameter at the test pixel, to sanity-check
-    !### whether Nu1/size are physically reasonable (sets the available
-    !### surface area for MOSAIC's kinetic gas-particle mass transfer).
-    !### physta%q/dgncur_a/dgncur_awet are already updated for this step
-    !### at this point (calcsize+wateruptake+amicphys have all run above).
-    IF ( FoundTgt ) THEN
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  Nu1[#/m3] = ', &
-                              physta%q(Jtgt+(Itgt-1)*State_Grid%NY,1,numptr_amode(1)) &
-                              * State_Met%AIRDEN(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  Nu2[#/m3] = ', &
-                              physta%q(Jtgt+(Itgt-1)*State_Grid%NY,1,numptr_amode(2)) &
-                              * State_Met%AIRDEN(Itgt,Jtgt,1)
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  Dgn_dry[um] = ', &
-                              physta%dgncur_a(Jtgt+(Itgt-1)*State_Grid%NY,1,1) * 1.0e+6_fp
-       WRITE(6,'(a,es14.6)') 'MAM_DEBUG_DRIV AFTER:  Dgn_wet[um] = ', &
-                              physta%dgncur_awet(Jtgt+(Itgt-1)*State_Grid%NY,1,1) * 1.0e+6_fp
-    ENDIF
-
-    !### MAM_BOXMODEL AFTER: gas [PPB], met, aerosol [µg/m3] after MAM microphysics
-    IF ( FoundTgt ) THEN
-       bm_air   = State_Met%AIRDEN(Itgt,Jtgt,1)
-       bm_adinv = 1.0_fp / State_Met%AD(Itgt,Jtgt,1)
-       bm_fugm3 = bm_air * bm_adinv * 1.0e9_fp
-       bm_m1 = 0.0_fp ; bm_m2 = 0.0_fp ; bm_m3 = 0.0_fp ; bm_m4 = 0.0_fp
-       bm_m1(1)  = Spc(Ind_('MAMSO41' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m1(2)  = Spc(Ind_('MAMBC1'  ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m1(3)  = Spc(Ind_('MAMPOM1' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m1(4)  = Spc(Ind_('MAMSOA1' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m1(5)  = Spc(Ind_('MAMSSLT1'))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m1(6)  = Spc(Ind_('MAMDUST1'))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m1(7)  = Spc(Ind_('MAMMOM1' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m1(8)  = Spc(Ind_('MAMNH41' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m1(9)  = Spc(Ind_('MAMNO31' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m1(10) = Spc(Ind_('MAMCA1'  ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m1(11) = Spc(Ind_('MAMCO31' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m1(12) = Spc(Ind_('MAMCL1'  ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m2(1)  = Spc(Ind_('MAMSO42' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m2(4)  = Spc(Ind_('MAMSOA2' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m2(5)  = Spc(Ind_('MAMSSLT2'))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m2(6)  = Spc(Ind_('MAMDUST2'))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m2(7)  = Spc(Ind_('MAMMOM2' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m2(8)  = Spc(Ind_('MAMNH42' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m2(9)  = Spc(Ind_('MAMNO32' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m2(10) = Spc(Ind_('MAMCA2'  ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m2(11) = Spc(Ind_('MAMCO32' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m2(12) = Spc(Ind_('MAMCL2'  ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m3(1)  = Spc(Ind_('MAMSO43' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m3(2)  = Spc(Ind_('MAMBC3'  ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m3(3)  = Spc(Ind_('MAMPOM3' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m3(4)  = Spc(Ind_('MAMSOA3' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m3(5)  = Spc(Ind_('MAMSSLT3'))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m3(6)  = Spc(Ind_('MAMDUST3'))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m3(7)  = Spc(Ind_('MAMMOM3' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m3(8)  = Spc(Ind_('MAMNH43' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m3(9)  = Spc(Ind_('MAMNO33' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m3(10) = Spc(Ind_('MAMCA3'  ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m3(11) = Spc(Ind_('MAMCO33' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m3(12) = Spc(Ind_('MAMCL3'  ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m4(2)  = Spc(Ind_('MAMBC4'  ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m4(3)  = Spc(Ind_('MAMPOM4' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       bm_m4(7)  = Spc(Ind_('MAMMOM4' ))%Conc(Itgt,Jtgt,1) * bm_fugm3
-       WRITE(iulog,'(a,i6)') '&chem_output  ! MAM_DRIV step', mamstep
-       WRITE(iulog,'(a,4(es12.4,a))') 'numc = ', &
-           Spc(Ind_('MAMNu1'))%Conc(Itgt,Jtgt,1)*bm_fcm3, ',', &
-           Spc(Ind_('MAMNu2'))%Conc(Itgt,Jtgt,1)*bm_fcm3, ',', &
-           Spc(Ind_('MAMNu3'))%Conc(Itgt,Jtgt,1)*bm_fcm3, ',', &
-           Spc(Ind_('MAMNu4'))%Conc(Itgt,Jtgt,1)*bm_fcm3, ''
-       WRITE(iulog,'(a,4(es12.4,a))') 'ctot = ', &
-           SUM(bm_m1),',', SUM(bm_m2),',', SUM(bm_m3),',', SUM(bm_m4),''
-       WRITE(iulog,'(a,f8.4)')    'rh            = ', State_Met%RH(Itgt,Jtgt,1)*1.0e-2_fp
-       WRITE(iulog,'(a,f8.2)')    'temp          = ', State_Met%T(Itgt,Jtgt,1)
-       WRITE(iulog,'(a,es14.6,a)') 'qhno3         = ', &
-           Spc(Ind_('HNO3' ))%Conc(Itgt,Jtgt,1)*bm_adinv*(mwdry/63.01_fp)*1.0e9_fp,','
-       WRITE(iulog,'(a,es14.6,a)') 'qnh3          = ', &
-           Spc(Ind_('NH3'  ))%Conc(Itgt,Jtgt,1)*bm_adinv*(mwdry/17.04_fp)*1.0e9_fp,','
-       WRITE(iulog,'(a,es14.6,a)') 'qhcl          = ', &
-           Spc(Ind_('HCL'  ))%Conc(Itgt,Jtgt,1)*bm_adinv*(mwdry/36.45_fp)*1.0e9_fp,','
-       WRITE(iulog,'(a,es14.6)')   'qsoag         = ', &
-           Spc(Ind_('SOAP' ))%Conc(Itgt,Jtgt,1)*bm_adinv*(mwdry/150.0_fp)*1.0e9_fp
-       ! aerosol [µg/m3] per species per mode (idx: 1=SO4 2=BC 3=POM 4=SOA 5=NCL 6=DST 7=MOM 8=NH4 9=NO3 10=CA 11=CO3 12=CL)
-       WRITE(iulog,'(a,4(es12.4,a))') 'cso4 = ', bm_m1(1),',', bm_m2(1),',', bm_m3(1),',', bm_m4(1),''
-       WRITE(iulog,'(a,4(es12.4,a))') 'cpom = ', bm_m1(3),',', bm_m2(3),',', bm_m3(3),',', bm_m4(3),''
-       WRITE(iulog,'(a,4(es12.4,a))') 'csoa = ', bm_m1(4),',', bm_m2(4),',', bm_m3(4),',', bm_m4(4),''
-       WRITE(iulog,'(a,4(es12.4,a))') 'cbc = ',  bm_m1(2),',', bm_m2(2),',', bm_m3(2),',', bm_m4(2),''
-       WRITE(iulog,'(a,4(es12.4,a))') 'cdst = ', bm_m1(6),',', bm_m2(6),',', bm_m3(6),',', bm_m4(6),''
-       WRITE(iulog,'(a,4(es12.4,a))') 'cncl = ', bm_m1(5),',', bm_m2(5),',', bm_m3(5),',', bm_m4(5),''
-       WRITE(iulog,'(a,4(es12.4,a))') 'cno3 = ', bm_m1(9),',', bm_m2(9),',', bm_m3(9),',', bm_m4(9),''
-       WRITE(iulog,'(a,4(es12.4,a))') 'cnh4 = ', bm_m1(8),',', bm_m2(8),',', bm_m3(8),',', bm_m4(8),''
-       WRITE(iulog,'(a,4(es12.4,a))') 'cco3 = ', bm_m1(11),',', bm_m2(11),',', bm_m3(11),',', bm_m4(11),''
-       WRITE(iulog,'(a,4(es12.4,a))') 'cca = ',  bm_m1(10),',', bm_m2(10),',', bm_m3(10),',', bm_m4(10),''
-       WRITE(iulog,'(a,4(es12.4,a))') 'ccl = ',  bm_m1(12),',', bm_m2(12),',', bm_m3(12),',', bm_m4(12),''
-       WRITE(iulog,'(a,4(es12.4,a))') 'qaerwat = ', &
-           physta%qaerwat(Jtgt+(Itgt-1)*State_Grid%NY,1,1)*bm_air*(18.015_fp/mwdry)*1.0e9_fp, ',', &
-           physta%qaerwat(Jtgt+(Itgt-1)*State_Grid%NY,1,2)*bm_air*(18.015_fp/mwdry)*1.0e9_fp, ',', &
-           physta%qaerwat(Jtgt+(Itgt-1)*State_Grid%NY,1,3)*bm_air*(18.015_fp/mwdry)*1.0e9_fp, ',', &
-           physta%qaerwat(Jtgt+(Itgt-1)*State_Grid%NY,1,4)*bm_air*(18.015_fp/mwdry)*1.0e9_fp, ''
-       WRITE(iulog,'(a)') '/'
-
-    ENDIF
 
 ! fill state GCMAM chem state variables,  used in e.g. drydep  nd diags
 ! harmonize mamgc and GCMAM 

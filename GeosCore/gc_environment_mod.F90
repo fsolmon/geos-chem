@@ -418,8 +418,9 @@ CONTAINS
     USE Tagged_O3_Mod,      ONLY : Init_Tagged_O3
     USE Vdiff_Mod,          ONLY : Init_Vdiff
     USE WetScav_Mod,        ONLY : Init_WetScav
-!FAB 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
     USE MAM_DRIV_MOD,       ONLY : MAM_INIT
+#endif
 !
 ! !INPUT PARAMETERS:
 !
@@ -618,7 +619,7 @@ CONTAINS
        ENDIF
     ENDIF
 
-! FAB MAM initialization , to be refined if ifdef / flags 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
     IF ( Input_Opt%ITS_A_FULLCHEM_SIM  ) THEN
        CALL MAM_INIT( Input_Opt, State_Chm, State_Diag, State_Grid, RC )
        IF ( RC /= GC_SUCCESS ) THEN
@@ -627,6 +628,7 @@ CONTAINS
           RETURN
        ENDIF
     ENDIF
+#endif
 
     !=================================================================
     ! Initialize simulation modules here

@@ -852,8 +852,9 @@ CONTAINS
     State_Chm%nRadNucl = SpcCount%nRadNucl
     State_Chm%nTracer  = SpcCount%nTracer
     State_Chm%nWetDep  = SpcCount%nWetDep
-! FAB ifdef ?
-    State_Chm%nMam  = SpcCount%nMam   
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
+    State_Chm%nMam  = SpcCount%nMam
+#endif
 
 #if defined (TOMAS12)
     State_Chm%nTomasBins = 12
@@ -2753,11 +2754,12 @@ CONTAINS
           C                       = ThisSpc%WetDepId
           State_Chm%Map_WetDep(C) = ThisSpc%ModelId
        ENDIF
-!FAB 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
        IF ( ThisSpc%MamModId > 0  ) THEN
           C                       = ThisSpc%MamId
           State_Chm%Map_Mam(C) = ThisSpc%ModelId
        ENDIF
+#endif
         
 
        !---------------------------------------------------------------------
@@ -2771,8 +2773,9 @@ CONTAINS
           IF ( ThisSpc%PhotolId  > 0 ) WRITE( inds(4), 100 ) ThisSpc%PhotolId
           IF ( ThisSpc%HygGrthId > 0 ) WRITE( inds(5), 100 ) ThisSpc%HygGrthId
           IF ( ThisSpc%KppSpcId  > 0 ) WRITE( inds(6), 100 ) ThisSpc%KppSpcId
-!FAB 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
           IF ( ThisSpc%MamId  > 0 ) WRITE( inds(6), 100 ) ThisSpc%MamId
+#endif
           WRITE( 6, 110 ) ThisSpc%Name(1:14), ( inds(C), C=1,6               )
  100      FORMAT( i10                                                        )
  110      FORMAT( a14, 2x, 6a10                                              )

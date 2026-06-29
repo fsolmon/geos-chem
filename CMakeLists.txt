@@ -51,7 +51,9 @@ add_subdirectory(ObsPack)
 add_subdirectory(APM)
 add_subdirectory(GeosRad)
 add_subdirectory(GTMM)
-add_subdirectory(MAM)
+if(MODAL_AERO_4MODE OR MODAL_AERO_4MODE_MOM)
+  add_subdirectory(MAM)
+endif()
 add_subdirectory(GeosCore)
 
 #-----------------------------------------------------------------------------

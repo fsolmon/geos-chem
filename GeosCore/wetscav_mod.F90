@@ -5080,6 +5080,7 @@ END FUNCTION WASHFRAC_DUSTBIN
     USE Input_Opt_Mod,  ONLY : OptInput
     USE Species_Mod,    ONLY : SpcConc
     USE State_Chm_Mod,  ONLY : ChmState
+    USE State_Chm_Mod,  ONLY : Ind_
     USE State_Diag_Mod, ONLY : DgnState
     USE State_Grid_Mod, ONLY : GrdState
     USE State_Met_Mod,  ONLY : MetState
@@ -5181,6 +5182,16 @@ END FUNCTION WASHFRAC_DUSTBIN
 #ifdef APM
           State_Chm%PSO4_SO2APM2(I,J,L) =                                    &
           State_Chm%PSO4_SO2APM2(I,J,L) - ( WETLOSS * 96e+0_fp / 64e+0_fp )
+#endif
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
+! FAB assume that SO4 is released in the accumulation mode
+          Spc(Ind_('MAMSO41'))%Conc(I,J,L) =                                 &
+          Spc(Ind_('MAMSO41'))%Conc(I,J,L) - ( WETLOSS * 96e+0_fp / 64e+0_fp )
+! Update also number
+          Spc(Ind_('MAMNu1'))%Conc(I,J,L) =                                  &
+          Spc(Ind_('MAMNu1'))%Conc(I,J,L) - ( WETLOSS * 96e+0_fp / 64e+0_fp ) * &
+                                State_Chm%GCMAM(1)%vol2num / 1700e+0_fp
+
 #endif
 
 #ifdef TOMAS

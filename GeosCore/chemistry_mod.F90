@@ -335,10 +335,27 @@ CONTAINS
              ENDIF
           ENDIF
 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
+          ! Run MAM microphysics (amicphys gas-aerosol exchange, wateruptake,
+          ! coagulation, nucleation) BEFORE KPP so that HNO3/NH3->NO3 aerosol
+          ! partitioning mirrors the pre-KPP Do_ATE call in the standard run.
+          CALL MAM_DRIV( Input_Opt  = Input_Opt,                             &
+                         State_Chm  = State_Chm,                             &
+                         State_Diag = State_Diag,                            &
+                         State_Grid = State_Grid,                            &
+                         State_Met  = State_Met,                             &
+                         RC         = RC                                    )
+          IF ( RC /= GC_SUCCESS ) THEN
+             ErrMsg = 'Error encountered in "MAM_DRIV" (pre-KPP)!'
+             CALL GC_Error( ErrMsg, RC, ThisLoc )
+             RETURN
+          ENDIF
+#endif
+
 #if defined(MODAL_AERO_4MODE_MOM)
           ! Replace legacy aerosol surface areas with MAM modal wet surface
-          ! areas for heterogeneous chemistry.  Called after both RDAER and
-          ! RDust_Online so it has the final word before Do_FullChem/KPP.
+          ! areas for heterogeneous chemistry.  Called after MAM_DRIV so that
+          ! current-timestep wet radii are used for KPP het rates.
           CALL MAM_to_HETRATES( Input_Opt, State_Chm, State_Grid, State_Met )
 #endif
 
@@ -665,14 +682,14 @@ CONTAINS
              ENDIF
           ENDIF
 #endif
-!FAB#ifdef MAM
-          CALL MAM_DRIV( Input_Opt  = Input_Opt,                             &
-                         State_Chm  = State_Chm,                             &
-                         State_Diag = State_Diag,                            &
-                         State_Grid = State_Grid,                            &
-                         State_Met  = State_Met,                             &
-                         RC         = RC                                    )
-
+! FAB: MAM_DRIV moved to pre-KPP (after RDust_Online) to match Do_ATE ordering
+!#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
+!          CALL MAM_DRIV( Input_Opt  = Input_Opt,                             &
+!                         State_Chm  = State_Chm,                             &
+!                         State_Diag = State_Diag,                            &
+!                         State_Grid = State_Grid,                            &
+!                         State_Met  = State_Met,                             &
+!                         RC         = RC                                    )
 !#endif
           IF ( Input_Opt%useTimers ) THEN
              CALL Timer_End( "=> Aerosol chem", RC )

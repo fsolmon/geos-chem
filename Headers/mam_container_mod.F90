@@ -275,6 +275,7 @@ CONTAINS
 ! Always think making an appropriate est when using GCMAM(n)%spec(:,:,:) elsewhere in the code.
 ! The info on relevant species per mode is accessible through the species_data.yml  
 ! 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
     do s = 1,size(SpcLocData)
     if(SpcLocData(s)%info%MamModId == n ) then ! test if mam species
 
@@ -408,8 +409,9 @@ CONTAINS
               ENDIF
           end if
 ! UPDATE WHEN NEW SPECIES WILL BE INTRODUCED
-      end if ! its a mam species mode n   
-    end do ! loop species 
+      end if ! its a mam species mode n
+    end do ! loop species
+#endif
 
 ! initialize ratios by considering the default MAM modal diameters and standard dev
 !

@@ -193,8 +193,9 @@ CONTAINS
     SpcCount%nHg0     = 0
     SpcCount%nHg2     = 0
     SpcCount%nHgP     = 0
-!FAB 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
     SpcCount%nMam     = 0
+#endif
 
     tags = (/"Background_VV     ",  &
              "DD_AeroDryDep     ",  &
@@ -642,18 +643,20 @@ CONTAINS
              IF ( RC /= GC_SUCCESS ) GOTO 999
              ThisSpc%MP_SizeResNum = v_bool
 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
           ELSE IF ( INDEX( key, "%MamModId" ) > 0 ) THEN  !FAB
              CALL QFYAML_Add_Get( yml, key, v_int, "", RC )
              IF ( RC /= GC_SUCCESS ) GOTO 999
-             IF(v_int > 0) THEN 
+             IF(v_int > 0) THEN
                 ThisSpc%MamModId = v_int
                 SpcCount%nMam  = SpcCount%nMam + 1
-                ThisSpc%MamId  = SpcCount%nMam             
-             ENDIF   
+                ThisSpc%MamId  = SpcCount%nMam
+             ENDIF
           ELSE IF ( INDEX( key, "%Is_CloudBorne" ) > 0 ) THEN  !FAB
              CALL QFYAML_Add_Get( yml, key, v_bool, "", RC )
              IF ( RC /= GC_SUCCESS ) GOTO 999
              ThisSpc%Is_Cloudborne = v_bool
+#endif
           ELSE IF ( INDEX( key, "%MW_g" ) > 0 ) THEN
              CALL QFYAML_Add_Get( yml, key, v_real, "", RC )
              IF ( RC /= GC_SUCCESS ) GOTO 999
@@ -866,6 +869,7 @@ CONTAINS
 
        ENDDO
 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
        ! QFYAML does not expand YAML << merge keys, so properties inherited
        ! via anchors (Is_CloudBorne, Is_Aerosol, Is_WetDep) are never set for
        ! MAMCB species.  Override here by name convention; also assign IDs and
@@ -883,6 +887,7 @@ CONTAINS
              ThisSpc%Is_WetDep  = .TRUE.
           END IF
        END IF
+#endif
 
        !--------------------------------------------------------------------
        ! SANITY CHECKS

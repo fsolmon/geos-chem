@@ -17533,9 +17533,10 @@ IF ( RC /= GC_SUCCESS ) RETURN
           numTags = State_Chm%nKppFix
        CASE( 'GAS',     'G' )
           numTags = State_Chm%nGasSpc
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
        CASE( 'MAMMODE' , 'M')
-!FAB perhaps define number of mam modes in state_chm
-          numTags = 4 !size(State_Chm%GCMAM)     
+          numTags = 4 !size(State_Chm%GCMAM)
+#endif
        CASE( 'HYG',     'H' )
           numTags = State_Chm%nHygGrth
        CASE( 'KPP',     'K' )
@@ -17675,8 +17676,12 @@ IF ( RC /= GC_SUCCESS ) RETURN
     !=======================================================================
     SELECT CASE( TRIM( tagID ) )
        CASE( 'ALL', 'ADV',   'DUSTBIN', 'TOMASBIN', 'PRD',                   &
-             'LOS', 'RRTMG', 'UVFLX',   'RXN', 'MAMMODE'                     )
+             'LOS', 'RRTMG', 'UVFLX',   'RXN'                                )
           D = N
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
+       CASE( 'MAMMODE' )
+          D = N
+#endif
        CASE( 'AER'  )
           D = State_Chm%Map_Aero(N)
        CASE( 'DRYALT'  )
@@ -17723,9 +17728,11 @@ IF ( RC /= GC_SUCCESS ) RETURN
        CASE( 'TOMASBIN' )
           WRITE ( Nstr, "(I2.2)" ) D
           tagName = 'bin' // TRIM(Nstr)
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
        CASE( 'MAMMODE')
           WRITE ( Nstr, "(I2.2)" ) D
           tagName = 'mod' // TRIM(Nstr)
+#endif
            ! Dust bins
        CASE( 'DUSTBIN' )
           WRITE ( Nstr, "(I1)" ) D

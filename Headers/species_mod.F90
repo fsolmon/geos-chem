@@ -53,8 +53,9 @@ MODULE Species_Mod
      INTEGER :: nHg0     ! # of Hg0 tracers
      INTEGER :: nHg2     ! # of Hg2 tracers
      INTEGER :: nHgP     ! # of HgP tracers
-!FAB     
-     INTEGER :: nMam      !# of MAM tracers 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
+     INTEGER :: nMam      ! # of MAM tracers
+#endif
   END TYPE SpcIndCt
 
   !=========================================================================
@@ -99,9 +100,11 @@ MODULE Species_Mod
      INTEGER            :: RadNuclId        ! Radionuclide index
      INTEGER            :: TracerId         ! Transport tracer index
      INTEGER            :: WetDepId         ! Wet deposition index
-     INTEGER            :: MamId            ! MAM index 
-     INTEGER            :: MamModId         ! MAM mode index for MAM species FAB
-      
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
+     INTEGER            :: MamId            ! MAM index
+     INTEGER            :: MamModId         ! MAM mode index for MAM species
+#endif
+
      ! Names
      CHARACTER(LEN=31)  :: Name             ! Short name
      CHARACTER(LEN=80)  :: FullName         ! Long name
@@ -125,7 +128,9 @@ MODULE Species_Mod
      LOGICAL            :: Is_JacobianTracer  ! Is it a Jacobian tracer?
      LOGICAL            :: Is_WetDep        ! Is it wet-deposited?
      LOGICAL            :: Is_InRestart     ! Is it in the restart file?
-     LOGICAL            :: Is_CloudBorne    ! Is it cloud_borne (MAM)/activated FAB  
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
+     LOGICAL            :: Is_CloudBorne    ! Is it cloud-borne (activated, MAM)
+#endif
      ! Molecular weights
      REAL(fp)           :: MW_g             ! Species molecular weight [g/mol]
 
@@ -420,7 +425,9 @@ CONTAINS
     Spc%WD_Is_HNO3      = MISSING_BOOL
     Spc%WD_Is_SO2       = MISSING_BOOL
     Spc%WD_LiqAndGas    = MISSING_BOOL
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
     Spc%Is_CloudBorne   = MISSING_BOOL
+#endif
     ! Integers
     Spc%AdvectId        = MISSING_INT
     Spc%AerosolId       = MISSING_INT
@@ -437,8 +444,10 @@ CONTAINS
     Spc%RadNuclId       = MISSING_INT
     Spc%TracerId        = MISSING_INT
     Spc%WetDepId        = MISSING_INT
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
     Spc%MamId           = MISSING_INT
     Spc%MamModId        = MISSING_INT
+#endif
     ! Reals (floating precision)
     Spc%BackgroundVV    = MISSING
     Spc%DD_DvzAerSnow   = MISSING
@@ -765,14 +774,16 @@ CONTAINS
           WRITE( 6, 130 )    "Is_HgP         ",  ThisSpc%Is_HgP
        ENDIF
 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
        IF ( ThisSpc%Is_CloudBorne ) THEN
           WRITE( 6, 130 )    "Is_CloudBorne   ",  ThisSpc%Is_CloudBorne
        ENDIF
-       
+
        IF ( ThisSpc%MamModId > ZERO ) THEN
           WRITE( 6, 130 )    " MamModId   ",  ThisSpc%MamModId
           WRITE( 6, 130 )    " MamId      ",  ThisSpc%MamId
        ENDIF
+#endif
 
          
        !--------------------------------------------------------------------

@@ -265,12 +265,13 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
 
      CALL MAM_cold_start (physta)
  
+     IF ( mdo_coldstart == 1) then
      ! mdo_coldstart initialies in Mam_cold_start
      DO L = 1, State_Grid%NZ
      DO J = 1, State_Grid%NY
      DO I = 1, State_Grid%NX ! 
        n = J + (I-1)*State_Grid%NY
-! Cold-start init of MAM accumulation-mode SO4/NO3/NH4 mass + number from
+! Cold-start overrides of MAM accumulation-mode SO4/NO3/NH4 mass + number from
 ! the equivalent standard GC species, so MAM and standard chem start from
 ! the same aerosol burden.
        physta%q(n,l,lptr_so4_a_amode(1)) = Spc(IND_('SO4'))%Conc(I,J,L)/State_Met%AD(I,J,L)
@@ -286,6 +287,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     END DO
     END DO
     END DO
+    ENDIF
     ENDIF
 
 
@@ -565,23 +567,27 @@ IF(1==1) THEN
         IF(lptr_dust_a_amode(m) > 0 ) State_Chm%GCMAM(m)%dust(I,J,L) =              &
                                 physta%q(n,L,lptr_dust_a_amode(m))*State_Met%AIRDEN(I,J,L)
  
-        IF(lptr_nh4_a_amode(m) > 0 ) State_Chm%GCMAM(m)%nh4(I,J,L) =                &
+        !FAB: lptr_xxx_a_amode(m)>0 is structural (mechanism-level), but
+        ! GCMAM(m)%xxx is only allocated if the species is actually advected
+        ! (see GCMAM(m)%lxxx, mam_container_mod.F90) -- guard on both, else
+        ! dropping a species (e.g. MAMMOM) segfaults on a null-pointer write.
+        IF(lptr_nh4_a_amode(m) > 0 .AND. State_Chm%GCMAM(m)%lnh4 ) State_Chm%GCMAM(m)%nh4(I,J,L) =  &
                                physta%q(n,L,lptr_nh4_a_amode(m))*State_Met%AIRDEN(I,J,L)
 
-        IF(lptr_no3_a_amode(m) > 0 ) State_Chm%GCMAM(m)%no3(I,J,L) =                &
+        IF(lptr_no3_a_amode(m) > 0 .AND. State_Chm%GCMAM(m)%lno3 ) State_Chm%GCMAM(m)%no3(I,J,L) =  &
                                physta%q(n,L,lptr_no3_a_amode(m))*State_Met%AIRDEN(I,J,L)
 
-        IF(lptr_ca_a_amode(m) > 0 ) State_Chm%GCMAM(m)%ca(I,J,L) =                  &
+        IF(lptr_ca_a_amode(m) > 0 .AND. State_Chm%GCMAM(m)%lca ) State_Chm%GCMAM(m)%ca(I,J,L) =     &
                                physta%q(n,L,lptr_ca_a_amode(m))*State_Met%AIRDEN(I,J,L)
 
-        IF(lptr_co3_a_amode(m) > 0 ) State_Chm%GCMAM(m)%co3(I,J,L) =                &
+        IF(lptr_co3_a_amode(m) > 0 .AND. State_Chm%GCMAM(m)%lco3 ) State_Chm%GCMAM(m)%co3(I,J,L) =  &
                                physta%q(n,L,lptr_co3_a_amode(m))*State_Met%AIRDEN(I,J,L)
 
-        IF(lptr_cl_a_amode(m) > 0 ) State_Chm%GCMAM(m)%cl(I,J,L) =                  &
+        IF(lptr_cl_a_amode(m) > 0 .AND. State_Chm%GCMAM(m)%lcl ) State_Chm%GCMAM(m)%cl(I,J,L) =     &
                                physta%q(n,L,lptr_cl_a_amode(m))*State_Met%AIRDEN(I,J,L)
 
-        IF(lptr_mom_a_amode(m) > 0 ) State_Chm%GCMAM(m)%mom(I,J,L) =                &
-                               physta%q(n,L,lptr_mom_a_amode(m))*State_Met%AIRDEN(I,J,L)  
+        IF(lptr_mom_a_amode(m) > 0 .AND. State_Chm%GCMAM(m)%lmom ) State_Chm%GCMAM(m)%mom(I,J,L) =  &
+                               physta%q(n,L,lptr_mom_a_amode(m))*State_Met%AIRDEN(I,J,L)
 
 ! optics
         State_Chm%GCMAM(m)%tauxar(I,J,L,:) = mamoptdiag(m)%tauxar(n,L,:)
@@ -1016,6 +1022,13 @@ END SUBROUTINE MAM_INIT
        DO I = 1, State_Grid%NX
        DO J = 1, State_Grid%NY
        DO n = 1 , size(mamgc)
+
+          ! CB species are not gravitationally settled here: they have no
+          ! surface sink in this routine (Is_DryDep=false by design), and
+          ! their removal is handled exclusively by stratiform rainout in
+          ! wetscav_mod.F90. Settling them anyway drains mass into a
+          ! sink-less L=1, producing unbounded fake accumulation there.
+          IF (mamgc(n)%iscb) CYCLE
 
           DO L = 1, State_Grid%NZ
              

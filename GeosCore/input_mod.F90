@@ -4820,7 +4820,13 @@ CONTAINS
     !=================================================================
     ! Error check MARINE ORGANIC AEROSOLS
     !=================================================================
-    I = MAX( Ind_('MOPO','A'), 0 ) + MAX( Ind_('MOPI','A'), 0 )
+    !FAB: also accept MAMMOM1/MAMMOM4 -- HEMCO's SeaSalt extension can
+    ! route the Gantt et al. marine-organic (MOPO) flux directly to
+    ! MAMMOM4 instead of a legacy MOPO/MOPI tracer (see
+    ! hcox_seasalt_mod.F90 and MAM/devnotes.md). Undefined/-1 for
+    ! non-MAM builds, so MAX(...,0) is a no-op there.
+    I = MAX( Ind_('MOPO','A'), 0 ) + MAX( Ind_('MOPI','A'), 0 ) + &
+        MAX( Ind_('MAMMOM4','A'), 0 ) + MAX( Ind_('MAMMOM1','A'), 0 )
 
     IF ( Input_Opt%LMPOA ) THEN
        IF ( .not. Input_Opt%LSSALT ) THEN

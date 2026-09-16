@@ -1842,101 +1842,244 @@ SUBROUTINE MAM_to_HETRATES( Input_Opt, State_Chm, State_Grid, State_Met )
 ! #if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM )
 ! (FAB, MAM-decouple-std Step 1: was MODAL_AERO_4MODE_MOM only).
 !
+! FAB (MAM-decouple-std, Step 2): composition-resolved surface areas.
+!   Previously all MAM wet SA went into the SUL slot and every other slot
+!   (dust, BC, OC, SSA, SSC) was zeroed, which switched off halogen het chem
+!   on sea salt, N2O5/HO2 uptake on dust, NO3 hydrolysis, etc.
+!   Now, for each INTERSTITIAL mode m (cloud-borne mass has no particle
+!   surface: it sits in droplets), the wet SA S_m (GCMAM%saer) is split among
+!   the GEOS-Chem aerosol-type slots (fullchem_RateLawFuncs.F90:30-42) by the
+!   component dry-volume fraction f_c,m = V_c,m / sum_c V_c,m,
+!   V = mass/density (MAM specdens_amode):
+!     DU1..DU7 (1-7) <- dust, Ca, CO3      (bin with R_eff closest to mode r_eff)
+!     SUL      (8)   <- SO4, NH4, NO3
+!     BKC      (9)   <- BC
+!     ORC      (10)  <- POM, SOA, MOM
+!     SSA      (11)  <- Na (seasalt), Cl   in accumulation + Aitken modes
+!     SSC      (12)  <- Na (seasalt), Cl   in coarse mode
+!   Slots 13-14 (strat. liquid aerosol, ice) are not touched.
+!   Radius of each slot = SA-weighted wet EFFECTIVE radius of contributing
+!   modes, r_eff = 3V/S = r_gv,wet * exp(-0.5 ln^2 sigma) (wetrad is the
+!   volume-mean geometric radius), so xVol = xArea*xRadi/3 in
+!   fullchem_HetStateFuncs is the true wet volume. A slot with zero area
+!   keeps its legacy radius (rate is zero anyway).
+!   Mode water is apportioned among components by kappa*V (ZSR additivity,
+!   kappa = MAM spechygro).
+!   Fine-inorganic fields keep their STD meaning (ISORROPIA/HETP "fine"
+!   system = SNA + fine sea salt):
+!     aClArea/aClRadi, AeroH2O(SUL), IsorropAeroH2O(1) <- SNA + SS share of
+!     accumulation + Aitken modes; IsorropAeroH2O(2) <- SNA + SS share of
+!     the coarse mode.
+!
 ! Fields overwritten:
-!   AeroArea / WetAeroArea  -- total MAM wet SA in slot NDUST+1 (SNA gamma)
-!   aClArea / aClRadi       -- fine Cl-bearing SA and radius (accum+aitken)
-!                              used as volInorg/Rcore in N2O5_InorgOrg
-!   AeroH2O(NDUST+1)        -- fine-mode aerosol water; sets H%xH2O(SUL)
-!                              which controls N2O5 gamma (wet vs. dry branch)
+!   AeroArea / WetAeroArea (1:NDUST+NRHAER), AeroRadi / WetAeroRadi (same,
+!                             where area > 0)
+!   aClArea / aClRadi       -- fine inorganic SA and r_eff (N2O5_InorgOrg,
+!                              NO3 hydrolysis on SALA)
+!   AeroH2O(SUL,BKC,ORC,SSA,SSC) [g/m3] -- H%xH2O (N2O5 gamma)
+!   IsorropAeroH2O(1:2)     [ug/m3]     -- H%AWATER (NO3 hydrolysis on SS)
 !   IsorropHplus(1)         -- accumulation-mode H+ [mol/L]
 !   IsorropAeropH(1)        -- pH = -log10(H+); sets H%H_conc_Sul for
 !                              HOBr/HOCl/ClNO3 het reactions
 !------------------------------------------------------------------------------
-    USE CMN_SIZE_Mod,   ONLY : NDUST, NRHAER
-    USE Input_Opt_Mod,  ONLY : OptInput
-    USE State_Chm_Mod,  ONLY : ChmState
-    USE State_Grid_Mod, ONLY : GrdState
-    USE State_Met_Mod,  ONLY : MetState
-    USE precision_mod,  ONLY : fp
+    USE CMN_SIZE_Mod,    ONLY : NDUST, NRHAER
+    USE Input_Opt_Mod,   ONLY : OptInput
+    USE State_Chm_Mod,   ONLY : ChmState
+    USE State_Grid_Mod,  ONLY : GrdState
+    USE State_Met_Mod,   ONLY : MetState
+    USE precision_mod,   ONLY : fp
+    USE modal_aero_data, ONLY : ntot_aspectype, specname_amode,            &
+                                specdens_amode, spechygro, alnsg_amode,    &
+                                modeptr_accum, modeptr_aitken, modeptr_coarse
 
     TYPE(OptInput), INTENT(IN)    :: Input_Opt
     TYPE(ChmState), INTENT(INOUT) :: State_Chm
     TYPE(GrdState), INTENT(IN)    :: State_Grid
     TYPE(MetState), INTENT(IN)    :: State_Met
 
-    REAL(fp), POINTER :: TAREA (:,:,:,:)
-    REAL(fp), POINTER :: WTAREA(:,:,:,:)
-    INTEGER           :: I, J, L, m, nmodes
+    ! Het-chem slot indices (fullchem_RateLawFuncs.F90:30-42)
+    INTEGER,  PARAMETER :: iSUL = NDUST+1, iBKC = NDUST+2, iORC = NDUST+3
+    INTEGER,  PARAMETER :: iSSA = NDUST+4, iSSC = NDUST+5
+    INTEGER,  PARAMETER :: NSLOT = NDUST+NRHAER
+    ! Composition categories
+    INTEGER,  PARAMETER :: cDST = 1, cSNA = 2, cBC = 3, cOM = 4, cSS = 5
+    INTEGER,  PARAMETER :: NCAT = 5
+    ! GEOS-Chem dust bin effective radii [um] (fullchem_RateLawFuncs.F90:29-35)
+    REAL(fp), PARAMETER :: DU_Reff_um(NDUST) = (/ 0.151_fp, 0.253_fp,       &
+                           0.402_fp, 0.818_fp, 1.491_fp, 2.417_fp, 3.721_fp /)
+    ! MAM species types carried in GCMAM(m)%<field>
+    INTEGER,  PARAMETER :: NSPC = 12
+    CHARACTER(LEN=10), PARAMETER :: spcType(NSPC) = (/                      &
+         'sulfate   ', 'ammonium  ', 'nitrate   ', 'black-c   ',            &
+         'p-organic ', 's-organic ', 'm-organic ', 'seasalt   ',            &
+         'chloride  ', 'dust      ', 'calcium   ', 'carbonate ' /)
+    INTEGER,  PARAMETER :: spcCat(NSPC) = (/ cSNA, cSNA, cSNA, cBC,         &
+                           cOM, cOM, cOM, cSS, cSS, cDST, cDST, cDST /)
 
-    TAREA  => State_Chm%AeroArea
-    WTAREA => State_Chm%WetAeroArea
-    nmodes =  SIZE( State_Chm%GCMAM )
+    REAL(fp) :: rDens(NSPC), kappa(NSPC)
+    REAL(fp) :: vol(NCAT), kvol(NCAT), mass(NSPC)
+    REAL(fp) :: area(NSLOT), areaR(NSLOT), wat(NSLOT)
+    REAL(fp) :: vtot, kvtot, S_m, reff, wm, a, w, dmin, d
+    REAL(fp) :: aclA, aclAR, watFine, watCoarse
+    INTEGER  :: I, J, L, m, k, t, c, iDU, nmodes
+    LOGICAL  :: isFine
 
-    ! Zero legacy surface area slots (dust 1:NDUST and hygroscopic NDUST+1:NDUST+NRHAER)
-    TAREA (:,:,:,1:NDUST+NRHAER) = 0.0_fp
-    WTAREA(:,:,:,1:NDUST+NRHAER) = 0.0_fp
+    nmodes = SIZE( State_Chm%GCMAM )
 
-    ! Accumulate total MAM wet surface area into slot NDUST+1 (SNA gamma applies)
-    DO m = 1, nmodes
-       !$OMP PARALLEL DO          &
-       !$OMP DEFAULT( SHARED )    &
-       !$OMP PRIVATE( I, J, L )  &
-       !$OMP SCHEDULE( DYNAMIC )
-       DO I = 1, State_Grid%NX
-       DO J = 1, State_Grid%NY
-       DO L = 1, State_Grid%NZ
-          TAREA (I,J,L,NDUST+1) = TAREA (I,J,L,NDUST+1) + State_Chm%GCMAM(m)%saer(I,J,L)
-          WTAREA(I,J,L,NDUST+1) = WTAREA(I,J,L,NDUST+1) + State_Chm%GCMAM(m)%saer(I,J,L)
+    ! Inverse density [m3/kg] and kappa of each carried species type, taken
+    ! from MAM (rad_cnst physprop); types absent from this build get 0.
+    rDens = 0.0_fp
+    kappa = 0.0_fp
+    DO k = 1, NSPC
+       DO t = 1, ntot_aspectype
+          IF ( TRIM(specname_amode(t)) == TRIM(spcType(k)) ) THEN
+             IF ( specdens_amode(t) > 0.0_fp .AND.                          &
+                  specdens_amode(t) < 1.0e+20_fp ) THEN
+                rDens(k) = 1.0_fp / specdens_amode(t)
+                kappa(k) = MAX( spechygro(t), 0.0_fp )
+             ENDIF
+             EXIT
+          ENDIF
        END DO
-       END DO
-       END DO
-       !$OMP END PARALLEL DO
     END DO
 
-    TAREA  => NULL()
-    WTAREA => NULL()
-
-    ! -----------------------------------------------------------------------
-    ! aClArea / aClRadi: wet surface area and radius of the fine Cl-bearing
-    ! inorganic aerosol, replacing the legacy SNA+SALA-derived values from
-    ! RDAER.  Passed as volInorg/Rcore to N2O5_InorgOrg in KPP.
-    ! aClArea [cm2/cm3]: accum (mode 1) + aitken (mode 2) wet SA.
-    ! aClRadi [cm]: accum mode volume-mean wet radius (wetrad [m] -> cm).
-    ! -----------------------------------------------------------------------
-    !$OMP PARALLEL DO          &
-    !$OMP DEFAULT( SHARED )    &
-    !$OMP PRIVATE( I, J, L )  &
+    !$OMP PARALLEL DO                                                        &
+    !$OMP DEFAULT( SHARED )                                                  &
+    !$OMP PRIVATE( I, J, L, m, k, c, iDU, isFine, vol, kvol, mass, area )    &
+    !$OMP PRIVATE( areaR, wat, vtot, kvtot, S_m, reff, wm, a, w, dmin, d )   &
+    !$OMP PRIVATE( aclA, aclAR, watFine, watCoarse )                         &
+    !$OMP COLLAPSE( 3 )                                                      &
     !$OMP SCHEDULE( DYNAMIC )
-    DO I = 1, State_Grid%NX
-    DO J = 1, State_Grid%NY
     DO L = 1, State_Grid%NZ
-       State_Chm%aClArea(I,J,L) = State_Chm%GCMAM(1)%saer(I,J,L)   &
-                                 + State_Chm%GCMAM(2)%saer(I,J,L)
-       State_Chm%aClRadi(I,J,L) = State_Chm%GCMAM(1)%wetrad(I,J,L) * 1.0e+2_fp
-    END DO
-    END DO
-    END DO
-    !$OMP END PARALLEL DO
+    DO J = 1, State_Grid%NY
+    DO I = 1, State_Grid%NX
 
-    ! -----------------------------------------------------------------------
-    ! AeroH2O(NDUST+1): aerosol liquid water for the SNA-equivalent slot,
-    ! replacing the ISORROPIA value (zero when ISORROPIA is bypassed by
-    ! #ifndef MOSAIC_SPECIES).  Used as H%xH2O(SUL) in N2O5_InorgOrg to
-    ! compute M_H2O and select wet vs. dry gamma branch.
-    ! aerwat [kg/kg] * AIRDEN [kg/m3] * 1000 -> g/m3, consistent with the
-    ! units written by aerosol_thermodynamics_mod (AERLIQ*18 g/m3).
-    ! -----------------------------------------------------------------------
-    !$OMP PARALLEL DO          &
-    !$OMP DEFAULT( SHARED )    &
-    !$OMP PRIVATE( I, J, L )  &
-    !$OMP SCHEDULE( DYNAMIC )
-    DO I = 1, State_Grid%NX
-    DO J = 1, State_Grid%NY
-    DO L = 1, State_Grid%NZ
-       State_Chm%AeroH2O(I,J,L,NDUST+1) =                            &
-            ( State_Chm%GCMAM(1)%aerwat(I,J,L)                       &
-            + State_Chm%GCMAM(2)%aerwat(I,J,L) )                     &
-            * State_Met%AIRDEN(I,J,L) * 1.0e+3_fp
+       area      = 0.0_fp
+       areaR     = 0.0_fp
+       wat       = 0.0_fp
+       aclA      = 0.0_fp
+       aclAR     = 0.0_fp
+       watFine   = 0.0_fp
+       watCoarse = 0.0_fp
+
+       DO m = 1, nmodes
+
+          S_m = State_Chm%GCMAM(m)%saer(I,J,L)          ! [cm2/cm3]
+          IF ( S_m <= 0.0_fp ) CYCLE
+
+          ! Interstitial component masses [kg/m3] (allocated only if carried)
+          mass = 0.0_fp
+          IF ( State_Chm%GCMAM(m)%lso4  ) mass(1)  = State_Chm%GCMAM(m)%so4 (I,J,L)
+          IF ( State_Chm%GCMAM(m)%lnh4  ) mass(2)  = State_Chm%GCMAM(m)%nh4 (I,J,L)
+          IF ( State_Chm%GCMAM(m)%lno3  ) mass(3)  = State_Chm%GCMAM(m)%no3 (I,J,L)
+          IF ( State_Chm%GCMAM(m)%lbc   ) mass(4)  = State_Chm%GCMAM(m)%bc  (I,J,L)
+          IF ( State_Chm%GCMAM(m)%lpom  ) mass(5)  = State_Chm%GCMAM(m)%pom (I,J,L)
+          IF ( State_Chm%GCMAM(m)%lsoa  ) mass(6)  = State_Chm%GCMAM(m)%soa (I,J,L)
+          IF ( State_Chm%GCMAM(m)%lmom  ) mass(7)  = State_Chm%GCMAM(m)%mom (I,J,L)
+          IF ( State_Chm%GCMAM(m)%lsslt ) mass(8)  = State_Chm%GCMAM(m)%sslt(I,J,L)
+          IF ( State_Chm%GCMAM(m)%lcl   ) mass(9)  = State_Chm%GCMAM(m)%cl  (I,J,L)
+          IF ( State_Chm%GCMAM(m)%ldust ) mass(10) = State_Chm%GCMAM(m)%dust(I,J,L)
+          IF ( State_Chm%GCMAM(m)%lca   ) mass(11) = State_Chm%GCMAM(m)%ca  (I,J,L)
+          IF ( State_Chm%GCMAM(m)%lco3  ) mass(12) = State_Chm%GCMAM(m)%co3 (I,J,L)
+
+          ! Dry volume and kappa*volume per category
+          vol  = 0.0_fp
+          kvol = 0.0_fp
+          DO k = 1, NSPC
+             c       = spcCat(k)
+             a       = MAX( mass(k), 0.0_fp ) * rDens(k)
+             vol(c)  = vol(c)  + a
+             kvol(c) = kvol(c) + kappa(k) * a
+          END DO
+          vtot  = SUM( vol  )
+          kvtot = SUM( kvol )
+          IF ( vtot <= 0.0_fp ) CYCLE
+
+          ! Wet effective radius [cm]: wetrad [m] is volume-mean geometric
+          reff = State_Chm%GCMAM(m)%wetrad(I,J,L)                           &
+               * EXP( -0.5_fp * alnsg_amode(m)**2 ) * 1.0e+2_fp
+
+          ! Mode aerosol water [kg/m3]: aerwat [kg/kg] * AIRDEN [kg/m3]
+          wm = MAX( State_Chm%GCMAM(m)%aerwat(I,J,L), 0.0_fp )              &
+             * State_Met%AIRDEN(I,J,L)
+
+          isFine = ( m == modeptr_accum .OR. m == modeptr_aitken )
+
+          ! Dust bin whose effective radius is closest (log space)
+          iDU  = 1
+          dmin = HUGE( 1.0_fp )
+          DO k = 1, NDUST
+             d = ABS( LOG( MAX( reff, 1.0e-10_fp ) * 1.0e+4_fp / DU_Reff_um(k) ) )
+             IF ( d < dmin ) THEN
+                dmin = d
+                iDU  = k
+             ENDIF
+          END DO
+
+          DO c = 1, NCAT
+             IF ( vol(c) <= 0.0_fp ) CYCLE
+             a = S_m * vol(c) / vtot
+             IF ( kvtot > 0.0_fp ) THEN
+                w = wm * kvol(c) / kvtot
+             ELSE
+                w = wm * vol(c) / vtot
+             ENDIF
+             SELECT CASE ( c )
+                CASE ( cDST )
+                   k = iDU
+                CASE ( cSNA )
+                   k = iSUL
+                CASE ( cBC )
+                   k = iBKC
+                CASE ( cOM )
+                   k = iORC
+                CASE ( cSS )
+                   k = iSSA
+                   IF ( m == modeptr_coarse ) k = iSSC
+             END SELECT
+             area(k)  = area(k)  + a
+             areaR(k) = areaR(k) + a * reff
+             wat(k)   = wat(k)   + w
+
+             ! Fine / coarse inorganic system (STD ISORROPIA meaning)
+             IF ( c == cSNA .OR. c == cSS ) THEN
+                IF ( isFine ) THEN
+                   aclA    = aclA    + a
+                   aclAR   = aclAR   + a * reff
+                   watFine = watFine + w
+                ELSE IF ( m == modeptr_coarse ) THEN
+                   watCoarse = watCoarse + w
+                ENDIF
+             ENDIF
+          END DO
+
+       END DO   ! modes
+
+       ! Surface areas [cm2/cm3] and effective radii [cm]
+       State_Chm%AeroArea   (I,J,L,1:NSLOT) = area
+       State_Chm%WetAeroArea(I,J,L,1:NSLOT) = area
+       DO k = 1, NSLOT
+          IF ( area(k) > 0.0_fp ) THEN
+             State_Chm%AeroRadi   (I,J,L,k) = areaR(k) / area(k)
+             State_Chm%WetAeroRadi(I,J,L,k) = areaR(k) / area(k)
+          ENDIF
+       END DO
+
+       ! Aerosol water per slot [g/m3] (dust slots are not set in STD either)
+       State_Chm%AeroH2O(I,J,L,iSUL) = watFine    * 1.0e+3_fp
+       State_Chm%AeroH2O(I,J,L,iBKC) = wat(iBKC)  * 1.0e+3_fp
+       State_Chm%AeroH2O(I,J,L,iORC) = wat(iORC)  * 1.0e+3_fp
+       State_Chm%AeroH2O(I,J,L,iSSA) = wat(iSSA)  * 1.0e+3_fp
+       State_Chm%AeroH2O(I,J,L,iSSC) = wat(iSSC)  * 1.0e+3_fp
+
+       ! Fine inorganic SA [cm2/cm3] and r_eff [cm]
+       State_Chm%aClArea(I,J,L) = aclA
+       IF ( aclA > 0.0_fp ) State_Chm%aClRadi(I,J,L) = aclAR / aclA
+
+       ! Inorganic aerosol water, fine / coarse [ug/m3] (H%AWATER)
+       State_Chm%IsorropAeroH2O(I,J,L,1) = watFine   * 1.0e+9_fp
+       State_Chm%IsorropAeroH2O(I,J,L,2) = watCoarse * 1.0e+9_fp
+
     END DO
     END DO
     END DO

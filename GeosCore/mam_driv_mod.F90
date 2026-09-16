@@ -1838,7 +1838,9 @@ SUBROUTINE MAM_to_HETRATES( Input_Opt, State_Chm, State_Grid, State_Met )
 !
 ! Replace legacy aerosol fields in State_Chm that feed KPP heterogeneous
 ! chemistry with MAM-derived equivalents.  Called from chemistry_mod.F90
-! after RDAER and RDust_Online, under #if defined(MODAL_AERO_4MODE_MOM).
+! after RDAER and RDust_Online, under
+! #if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM )
+! (FAB, MAM-decouple-std Step 1: was MODAL_AERO_4MODE_MOM only).
 !
 ! Fields overwritten:
 !   AeroArea / WetAeroArea  -- total MAM wet SA in slot NDUST+1 (SNA gamma)

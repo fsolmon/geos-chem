@@ -56,7 +56,9 @@ CONTAINS
 !
     USE AEROSOL_MOD,      ONLY : AEROSOL_CONC
     USE AEROSOL_MOD,      ONLY : RDAER
-#if defined(MODAL_AERO_4MODE_MOM)
+!FAB (MAM-decouple-std, Step 1): guard widened from MODAL_AERO_4MODE_MOM
+!    to match MAM_DRIV (see call site below)
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM )
     USE MAM_DRIV_MOD,     ONLY : MAM_to_HETRATES
 #endif
     USE CARBON_MOD,       ONLY : CHEMCARBON
@@ -352,10 +354,14 @@ CONTAINS
           ENDIF
 #endif
 
-#if defined(MODAL_AERO_4MODE_MOM)
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM )
           ! Replace legacy aerosol surface areas with MAM modal wet surface
           ! areas for heterogeneous chemistry.  Called after MAM_DRIV so that
           ! current-timestep wet radii are used for KPP het rates.
+          !FAB (MAM-decouple-std, Step 1): guard was MODAL_AERO_4MODE_MOM
+          ! only, while MAM_DRIV runs for 4MODE || 4MODE_MOM. A non-MOM MAM
+          ! build therefore kept the STD surface areas and double-counted
+          ! HNO3/HCl uptake with MOSAIC. Now matches MAM_DRIV.
           CALL MAM_to_HETRATES( Input_Opt, State_Chm, State_Grid, State_Met )
 #endif
 

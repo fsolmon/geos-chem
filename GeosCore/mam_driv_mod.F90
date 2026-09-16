@@ -44,7 +44,11 @@ PUBLIC :: MAM_DRIV, MAM_INIT, MAM_APPLY_RAINOUT_EFF, MAM_OPT_to_RRTMG, MAM_ACTIV
 
 ! sulf production rate calculates in   
 ! perhaps use AeroMass state variables 
-REAL(fp), pointer, public :: PSO4AQ_RATE(:,:,:) ! Cld chem sulfate prod rate [kg s-1]  
+REAL(fp), pointer, public :: PSO4AQ_RATE(:,:,:) ! Cld chem sulfate prod rate [kg s-1]
+! FAB (MAM-decouple-std, Step 2b): SO4 from SO2+O3 in alkaline sea-salt water
+! (KPP K_MT(1) fine, K_MT(4) coarse), set in fullchem_mod.F90 after KPP.
+! [kg SO4 box-1 per chemistry step]; 4th dim: 1 = fine, 2 = coarse
+REAL(fp), pointer, public :: PSO4SS_RATE(:,:,:,:)
 REAL(fp), pointer, public :: H2SO4_RATE(:,:,:) ! H2SO4 prod rate [kg s-1]
 ! 
 REAL(fp), pointer, public :: PSO4_SO2MAM(:,:,:)
@@ -131,8 +135,8 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
                                lptr_ca_a_amode,lptr_cl_a_amode,&
                                lptr_co3_a_amode,lptr_mom_a_amode,   &
                                modeptr_accum, modeptr_aitken,alnsg_amode, voltonumb_amode, &
-                               ntot_amode
-    USE modal_aero_initialize_data, only: MAM_cold_start 
+                               ntot_amode, modeptr_coarse
+    USE modal_aero_initialize_data, only: MAM_cold_start
     USE modal_aero_calcsize, only: modal_aero_calcsize_sub
     USE modal_aero_wateruptake, only: modal_aero_wateruptake_dr, &
                                       load_pbuf, unload_pbuf
@@ -184,6 +188,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       real(r8) :: taux_lw(pcols,pver,nlwbands)
       real(r8) :: hplus_aer_out(pcols,pver,ntot_amode)
       real(r8) :: relhum_loc(pcols,pver)   ! clear-sky RH for wateruptake
+      real(r8) :: pso4ss(pcols,pver,2)     ! FAB Step 2b: sea-salt aq. SO4 [kg/kg per step]
       !-------------
       INTEGER :: latndx(pcols),lonndx(pcols)  ! required by amicphys interface
 !--------------------------------------------------------------------------
@@ -198,6 +203,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
     Spc => State_Chm%Species
 
     latndx(:) = 0
+    pso4ss(:,:,:) = 0.0_r8   ! FAB Step 2b
     lonndx(:) = 0
 
 !     if (masterproc) then
@@ -231,6 +237,10 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       physta%ph2so4(n,l) = Spc(Ind_('PH2SO4'))%Conc(I,J,L) / State_Met%AD(I,J,L)/ deltat              
 
       physta%paqso4(n,l) =  Spc(Ind_('PSO4AQ'))%Conc(I,J,L)  / State_Met%AD(I,J,L) /deltat
+
+      ! FAB Step 2b: sea-salt aqueous SO4 from previous KPP call, kg -> kg/kg
+      pso4ss(n,l,1) = PSO4SS_RATE(I,J,L,1) / State_Met%AD(I,J,L)
+      pso4ss(n,l,2) = PSO4SS_RATE(I,J,L,2) / State_Met%AD(I,J,L)
       ! load q gas ...
       ! the gas phase species SO2,DMS,H2O2 in q are not used/modified 
       ! if we use GC production rate for SO4 instead of MAM simple chem 
@@ -388,6 +398,20 @@ CALL load_pbuf( pbuf, lchnk, pcols, &
       END DO
 !-------------------------------
 ! GASCHEM interface 
+
+!-------------------------------
+! FAB (MAM-decouple-std, Step 2b): SO4 produced by SO2 + O3 in alkaline
+! sea-salt aerosol water (KPP K_MT(1)/K_MT(4), diagnosed in fullchem_mod).
+! Added to INTERSTITIAL SO4 (the reaction takes place in aerosol water, not
+! cloud water): fine -> accumulation mode (Aitken sea-salt mass is small),
+! coarse -> coarse mode. Added BEFORE amicphys so that MOSAIC re-equilibrates
+! the new sulfate with the sea-salt Cl-/NO3- (acid displacement -> HCl).
+! Added before vmr_svaa so it is treated as state, not as a gas/cloud-chem
+! tendency. Number is unchanged (condensed mass; calcsize adjusts size).
+      l2 = lptr_so4_a_amode(modeptr_accum) - loffset
+      vmr(1:pcols,1:pver,l2) = vmr(1:pcols,1:pver,l2) + pso4ss(1:pcols,1:pver,1)*mwdry/adv_mass(l2)
+      l2 = lptr_so4_a_amode(modeptr_coarse) - loffset
+      vmr(1:pcols,1:pver,l2) = vmr(1:pcols,1:pver,l2) + pso4ss(1:pcols,1:pver,2)*mwdry/adv_mass(l2)
 
       vmr_svaa   = vmr  !save before gas chem , this is how the mam code proceed
 
@@ -813,6 +837,9 @@ CALL MAM_INIT_OPT()
 ALLOCATE( PSO4AQ_RATE(State_Grid%NX,State_Grid%NY,State_Grid%NZ) )
 ALLOCATE( H2SO4_RATE(State_Grid%NX,State_Grid%NY,State_Grid%NZ) )
 ALLOCATE( PSO4_SO2MAM(State_Grid%NX,State_Grid%NY,State_Grid%NZ) )
+!FAB Step 2b: sea-salt aqueous SO4 production (1 = fine, 2 = coarse)
+ALLOCATE( PSO4SS_RATE(State_Grid%NX,State_Grid%NY,State_Grid%NZ,2) )
+PSO4SS_RATE = 0.0_fp
 
 
 

@@ -151,6 +151,7 @@ CONTAINS
 #if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM)
     USE MAM_DRIV_MOD,                ONLY : H2SO4_RATE
     USE MAM_DRIV_MOD,                ONLY : PSO4AQ_RATE
+    USE MAM_DRIV_MOD,                ONLY : PSO4SS_RATE  !FAB Step 2b
 #endif
 
 
@@ -520,6 +521,12 @@ CONTAINS
           CALL fullchem_AR_KeepHalogensActive( Input_Opt%amIRoot )
        ENDIF
     ENDIF
+#endif
+
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM )
+    ! FAB (MAM-decouple-std, Step 2b): reset sea-salt SO4 production so that
+    ! boxes skipped below (e.g. failed integration) do not reuse old values
+    PSO4SS_RATE = 0.0_fp
 #endif
 
     !========================================================================
@@ -1290,6 +1297,27 @@ CONTAINS
 
        ! Revert Alkalinity (only when using sulfur chemistry in KPP)
        IF ( .not. State_Chm%Do_SulfateMod_SeaSalt ) THEN
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM )
+          !------------------------------------------------------------------
+          ! FAB (MAM-decouple-std, Step 2b): SO4 produced by SO2 + O3 in
+          ! alkaline sea-salt water, K_MT(1) (fine) and K_MT(4) (coarse):
+          !   SO2 + SALAAL + O3 = SO4 - SALAAL   consumes 2 eq alkalinity/SO4
+          ! With K_MT(2,3,5,6) = 0 under MAM (fullchem_SulfurAqChem) this is
+          ! the only KPP sink of SALAAL/SALCAL, so over the integration
+          !   P(SO4) = -( C(SALAAL) - C_before_integrate(SALAAL) ) / 2
+          ! (C still in equivalents here, i.e. before ConvertEquivToAlk).
+          ! Stored as kg SO4 box-1 per chemistry step and injected into MAM
+          ! interstitial SO4 at the next MAM_DRIV (same lag as PSO4AQ).
+          !------------------------------------------------------------------
+          PSO4SS_RATE(I,J,L,1) = MAX( C_before_integrate(ind_SALAAL)       &
+                                    - C(ind_SALAAL), 0.0_dp ) * 0.5_dp     &
+                               / AVO * 96.06e-3_fp                         &
+                               * State_Met%AIRVOL(I,J,L) * 1.0e+6_fp
+          PSO4SS_RATE(I,J,L,2) = MAX( C_before_integrate(ind_SALCAL)       &
+                                    - C(ind_SALCAL), 0.0_dp ) * 0.5_dp     &
+                               / AVO * 96.06e-3_fp                         &
+                               * State_Met%AIRVOL(I,J,L) * 1.0e+6_fp
+#endif
           CALL fullchem_ConvertEquivToAlk()
        ENDIF
 

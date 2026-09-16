@@ -181,27 +181,6 @@ CONTAINS
     k_ex = 0.0_dp
     K_MT = 0.0_dp
 
-#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM )
-    !----------------------------------------------------------------------
-    ! FAB (MAM-decouple-std, Step 1): skip sea-salt alkalinity reactions.
-    !
-    ! K_MT(2,3,5,6) -- HCl/HNO3 uptake on SALAAL/SALCAL -- are permanently
-    ! off: MOSAIC already treats HCl/HNO3 gas-particle partitioning on
-    ! Na/Ca-bearing MAM modes (ASTEM), so keeping them double-counts the
-    ! gas-phase loss.
-    !
-    ! K_MT(1,4) -- SO2 + O3 in sea-salt aerosol water (Alexander 2005) --
-    ! are off *temporarily*: MOSAIC does not oxidize S(IV), but the SO4
-    ! product would go to STD SO4/SO4s, not MAM. To be re-enabled once
-    ! product routing to MAM exists (devnotes Sec. 11.9, Step 4).
-    !
-    ! Bit-for-bit with the previous MOM build, where these rates were
-    ! already zero because MAM_to_HETRATES zeroes WetAeroArea(11:12).
-    ! Making it explicit lets the SSA/SSC slots be refilled (Step 2).
-    !----------------------------------------------------------------------
-    RETURN
-#endif
-
     !----------------------------------------------------------------------
     ! In order to prevent div-by-zero errors, we set thresholds 
     ! to skip the SALAAL + SO2 and SALCAL + SO2 reactions if:
@@ -322,6 +301,31 @@ CONTAINS
        ! Assume HNO3 is limiting, so recompute rxn rate accordingly
        K_MT(6) = kIIR1Ltd( C(ind_HNO3), C(ind_SALCAL), k_ex )
     ENDIF
+
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM )
+    !----------------------------------------------------------------------
+    ! FAB (MAM-decouple-std, Step 1 + Step 2b): sea-salt alkalinity
+    ! reactions under MAM.
+    !
+    ! K_MT(2,3,5,6) -- HCl/HNO3 uptake on SALAAL/SALCAL -- permanently off:
+    ! MOSAIC already treats HCl/HNO3 gas-particle partitioning on sea-salt
+    ! MAM modes (ASTEM), so keeping them double-counts the gas-phase loss.
+    !
+    ! K_MT(1,4) -- SO2 + O3 in alkaline sea-salt aerosol water (Alexander et
+    ! al., 2005) -- KEPT (Step 2b): MOSAIC does not oxidize S(IV). Rates use
+    ! MAM-derived SSA/SSC area and radius (MAM_to_HETRATES, Step 2) but the
+    ! alkalinity limiter is still the STD SALAAL/SALCAL tracer (hybrid until
+    ! Step 3). The SO4 produced is diagnosed in fullchem_mod.F90 as
+    ! -dSALAAL/2 and -dSALCAL/2 over the KPP integration and injected into
+    ! MAM interstitial SO4 (PSO4SS_RATE, mam_driv_mod.F90).
+    ! That diagnostic is exact ONLY because K_MT(2,3,5,6) = 0 here: SALAAL
+    ! and SALCAL then have no other KPP sink. Do not re-enable them.
+    !----------------------------------------------------------------------
+    K_MT(2) = 0.0_dp
+    K_MT(3) = 0.0_dp
+    K_MT(5) = 0.0_dp
+    K_MT(6) = 0.0_dp
+#endif
 
   END SUBROUTINE fullchem_SulfurAqChem
 !EOC

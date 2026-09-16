@@ -152,6 +152,8 @@ CONTAINS
     USE MAM_DRIV_MOD,                ONLY : H2SO4_RATE
     USE MAM_DRIV_MOD,                ONLY : PSO4AQ_RATE
     USE MAM_DRIV_MOD,                ONLY : PSO4SS_RATE  !FAB Step 2b
+    USE MAM_DRIV_MOD,                ONLY : MAM_KPP_Shadow_In   !FAB Step 3
+    USE MAM_DRIV_MOD,                ONLY : MAM_KPP_Shadow_Out  !FAB Step 3
 #endif
 
 
@@ -834,6 +836,13 @@ CONTAINS
           IF ( SpcId > 0 ) C(N) = State_Chm%Species(SpcID)%Conc(I,J,L)
        ENDDO
 
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM )
+       ! FAB (MAM-decouple-std, Step 3): overwrite KPP sea-salt Cl- (SALACL,
+       ! SALCCL) with MAM interstitial Cl- before any rate / het-state setup,
+       ! so C_before_integrate holds the shadow values (see mam_driv_mod.F90)
+       CALL MAM_KPP_Shadow_In( I, J, L, State_Chm )
+#endif
+
        !=====================================================================
        ! CHEMISTRY MECHANISM INITIALIZATION (#1)
        !
@@ -1383,6 +1392,12 @@ CONTAINS
           State_Chm%Species(SpcID)%Conc(I,J,L) = REAL( C(N), kind=fp )
 
        ENDDO
+
+#if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM )
+       ! FAB (MAM-decouple-std, Step 3): return the KPP change of the shadowed
+       ! SALACL/SALCCL to MAM interstitial Cl- (see mam_driv_mod.F90)
+       CALL MAM_KPP_Shadow_Out( I, J, L, State_Chm, C_before_integrate )
+#endif
 
 #if defined(TOMAS) || defined(MODAL_AERO_4MODE) || defined(MODAL_AERO_4MODE_MOM)
 !FAB#ifdef TOMAS

@@ -30,7 +30,8 @@ PRIVATE
 !PUBLIC MEMBER FUNCTIONS:
 
 PUBLIC :: MAM_DRIV, MAM_INIT, MAM_APPLY_RAINOUT_EFF, MAM_OPT_to_RRTMG, MAM_ACTIVATE_EVAP, &
-          MAM_OPT_to_PHOTOL, MAM_to_HETRATES
+          MAM_OPT_to_PHOTOL, MAM_to_HETRATES,                                          &
+          MAM_KPP_Shadow_In, MAM_KPP_Shadow_Out   !FAB Step 3
 
 ! !REMARKS:
 !  The MAM model was designed and developed for implementation into GEOS-Chem
@@ -76,7 +77,13 @@ END TYPE mamspec
 
 TYPE(mamspec), pointer :: mamgc(:)
 
-INTEGER nmamgc ! number of GC advected MAM tracers 
+INTEGER nmamgc ! number of GC advected MAM tracers
+
+! FAB (MAM-decouple-std, Step 3): GC species index of the INTERSTITIAL MAM Cl-
+! tracer of each MAM mode (-1 if not carried), and whether the KPP
+! SALACL/SALCCL shadowing is active (needs Cl- in accumulation + coarse).
+INTEGER, ALLOCATABLE :: id_MAMCL(:)
+LOGICAL              :: lshadow_cl = .FALSE.
 
 
     INTEGER:: loffset, lchnk
@@ -766,7 +773,8 @@ SUBROUTINE MAM_INIT( Input_Opt, State_Chm,  State_Diag, State_Grid, RC )
                                lptr_dust_a_amode, lptr_nh4_a_amode,&
                                lptr_no3_a_amode,lptr_ca_a_amode,&
                                lptr_cl_a_amode,lptr_co3_a_amode,&
-                               lptr_mom_a_amode 
+                               lptr_mom_a_amode, ntot_amode,       &
+                               modeptr_accum, modeptr_coarse   !FAB Step 3
 
     USE modal_aero_initialize_data, only: MAM_init_basics, MAM_ALLOCATE
     USE mam_opt, only: mam_init_opt
@@ -912,7 +920,148 @@ END DO
  ALLOCATE(CLDF_prev(State_Grid%NX, State_Grid%NY, State_Grid%NZ))
  CLDF_prev = 0.0_fp
 
+! FAB (MAM-decouple-std, Step 3): interstitial Cl- tracer per mode, for the
+! KPP SALACL/SALCCL shadowing (MAM_KPP_Shadow_In/Out)
+ ALLOCATE(id_MAMCL(ntot_amode))
+ id_MAMCL = -1
+ DO i = 1, nmamgc
+   IF ( mamgc(i)%iscb .OR. mamgc(i)%isnum ) CYCLE
+   IF ( mamgc(i)%name(4:5) == 'CL' ) id_MAMCL(mamgc(i)%modId) = mamgc(i)%gcind
+ END DO
+ lshadow_cl = .FALSE.
+ IF ( modeptr_accum > 0 .AND. modeptr_coarse > 0 ) THEN
+   lshadow_cl = ( id_MAMCL(modeptr_accum) > 0 .AND. id_MAMCL(modeptr_coarse) > 0 )
+ END IF
+ IF ( masterproc ) WRITE(*,*) 'MAM_INIT: KPP SALACL/SALCCL shadowed from MAM Cl- : ', lshadow_cl
+
 END SUBROUTINE MAM_INIT
+
+!------------------------------------------------------------------------------
+! !IROUTINE: MAM_KPP_Shadow_In
+!
+! !DESCRIPTION: FAB (MAM-decouple-std, Step 3). Called per grid box in
+!  fullchem_mod.F90 right after the KPP C vector is filled from
+!  State_Chm%Species (all species in molec/cm3 at that point).
+!
+!  KPP keeps SALACL/SALCCL as reactants of the sea-salt halogen reactions
+!  (N2O5, ClNO3, ClNO2, HOCl, HOBr, OH, IONO, IONO2, HOI + Cl-;
+!  fullchem.eqn:1702-1768) and uses them for the Cl- molarity in
+!  Get_Halide_SsaConc. MAM (MOSAIC) is the prognostic owner of aerosol Cl-,
+!  so the KPP values are overwritten ("shadowed") with MAM interstitial Cl-:
+!     C(SALACL) = sum over accumulation + Aitken modes of MAM Cl-
+!     C(SALCCL) = MAM Cl- of the coarse mode
+!  Cloud-borne Cl- is excluded (aerosol-water chemistry; cloud water is
+!  handled separately, Step 4). MAM Cl tracers have MW 35.45 like SALACL,
+!  so molecule numbers are copied directly.
+!------------------------------------------------------------------------------
+SUBROUTINE MAM_KPP_Shadow_In( I, J, L, State_Chm )
+
+    USE gckpp_Global,     ONLY : C
+    USE gckpp_Parameters, ONLY : ind_SALACL, ind_SALCCL
+    USE State_Chm_Mod,    ONLY : ChmState
+    USE modal_aero_data,  ONLY : modeptr_accum, modeptr_aitken, modeptr_coarse
+
+    INTEGER,        INTENT(IN) :: I, J, L
+    TYPE(ChmState), INTENT(IN) :: State_Chm
+
+    REAL(fp) :: fine
+
+    IF ( .NOT. lshadow_cl ) RETURN
+
+    fine = MAX( State_Chm%Species(id_MAMCL(modeptr_accum))%Conc(I,J,L), 0.0_fp )
+    IF ( modeptr_aitken > 0 ) THEN
+       IF ( id_MAMCL(modeptr_aitken) > 0 ) fine = fine +                     &
+          MAX( State_Chm%Species(id_MAMCL(modeptr_aitken))%Conc(I,J,L), 0.0_fp )
+    ENDIF
+
+    C(ind_SALACL) = REAL( fine, kind=KIND(C) )
+    C(ind_SALCCL) = REAL( MAX( State_Chm%Species(id_MAMCL(modeptr_coarse))%Conc(I,J,L), &
+                               0.0_fp ), kind=KIND(C) )
+
+END SUBROUTINE MAM_KPP_Shadow_In
+
+!------------------------------------------------------------------------------
+! !IROUTINE: MAM_KPP_Shadow_Out
+!
+! !DESCRIPTION: FAB (MAM-decouple-std, Step 3). Called per grid box in
+!  fullchem_mod.F90 after a successful KPP integration and after C has been
+!  copied back to State_Chm%Species. Returns the KPP change of the shadowed
+!  species to MAM:
+!     dCl_fine   = C(SALACL) - C_before_integrate(SALACL)
+!     dCl_coarse = C(SALCCL) - C_before_integrate(SALCCL)
+!  dCl_fine is distributed over accumulation + Aitken Cl- in proportion to
+!  their pre-KPP amounts (a pure loss can never drive a mode negative);
+!  if there is no pre-existing Cl-, a gain goes to the accumulation mode.
+!  Note: the STD SALACL/SALCCL tracers are overwritten by the copy-back with
+!  the post-KPP shadow values, i.e. they become a copy of MAM Cl-.
+!------------------------------------------------------------------------------
+SUBROUTINE MAM_KPP_Shadow_Out( I, J, L, State_Chm, C_before )
+
+    USE gckpp_Global,     ONLY : C
+    USE gckpp_Parameters, ONLY : ind_SALACL, ind_SALCCL
+    USE State_Chm_Mod,    ONLY : ChmState
+    USE modal_aero_data,  ONLY : modeptr_accum, modeptr_aitken, modeptr_coarse
+
+    INTEGER,        INTENT(IN)    :: I, J, L
+    TYPE(ChmState), INTENT(INOUT) :: State_Chm
+    REAL(KIND=KIND(C)), INTENT(IN) :: C_before(:)   ! KPP C before Integrate
+
+    INTEGER  :: mlist(2)
+
+    IF ( .NOT. lshadow_cl ) RETURN
+
+    mlist = (/ modeptr_accum, modeptr_aitken /)
+    CALL Shadow_Distribute( I, J, L, State_Chm, id_MAMCL, mlist,             &
+                            REAL( C(ind_SALACL) - C_before(ind_SALACL), fp ) )
+
+    mlist = (/ modeptr_coarse, -1 /)
+    CALL Shadow_Distribute( I, J, L, State_Chm, id_MAMCL, mlist,             &
+                            REAL( C(ind_SALCCL) - C_before(ind_SALCCL), fp ) )
+
+END SUBROUTINE MAM_KPP_Shadow_Out
+
+!------------------------------------------------------------------------------
+! FAB (MAM-decouple-std, Step 3): add delta [molec/cm3] to the MAM tracers
+! id_spc(mlist(:)) in proportion to their current (non-negative) amounts;
+! if they are all zero and delta > 0, put it in mlist(1).
+!------------------------------------------------------------------------------
+SUBROUTINE Shadow_Distribute( I, J, L, State_Chm, id_spc, mlist, delta )
+
+    USE State_Chm_Mod, ONLY : ChmState
+
+    INTEGER,        INTENT(IN)    :: I, J, L
+    TYPE(ChmState), INTENT(INOUT) :: State_Chm
+    INTEGER,        INTENT(IN)    :: id_spc(:), mlist(:)
+    REAL(fp),       INTENT(IN)    :: delta
+
+    INTEGER  :: k, m, id
+    REAL(fp) :: tot, x
+
+    IF ( delta == 0.0_fp ) RETURN
+
+    tot = 0.0_fp
+    DO k = 1, SIZE( mlist )
+       m = mlist(k)
+       IF ( m <= 0 ) CYCLE
+       IF ( id_spc(m) <= 0 ) CYCLE
+       tot = tot + MAX( State_Chm%Species(id_spc(m))%Conc(I,J,L), 0.0_fp )
+    END DO
+
+    IF ( tot > 0.0_fp ) THEN
+       DO k = 1, SIZE( mlist )
+          m = mlist(k)
+          IF ( m <= 0 ) CYCLE
+          id = id_spc(m)
+          IF ( id <= 0 ) CYCLE
+          x = MAX( State_Chm%Species(id)%Conc(I,J,L), 0.0_fp )
+          State_Chm%Species(id)%Conc(I,J,L) = MAX( x + delta * x / tot, 0.0_fp )
+       END DO
+    ELSE IF ( delta > 0.0_fp ) THEN
+       id = id_spc(mlist(1))
+       State_Chm%Species(id)%Conc(I,J,L) = State_Chm%Species(id)%Conc(I,J,L) + delta
+    ENDIF
+
+END SUBROUTINE Shadow_Distribute
 
 
 

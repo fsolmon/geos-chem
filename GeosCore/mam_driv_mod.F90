@@ -1852,11 +1852,20 @@ SUBROUTINE MAM_to_HETRATES( Input_Opt, State_Chm, State_Grid, State_Met )
 !   component dry-volume fraction f_c,m = V_c,m / sum_c V_c,m,
 !   V = mass/density (MAM specdens_amode):
 !     DU1..DU7 (1-7) <- dust, Ca, CO3      (bin with R_eff closest to mode r_eff)
-!     SUL      (8)   <- SO4, NH4, NO3
+!     SUL      (8)   <- SO4 (non-sea-salt part), NH4, NO3
 !     BKC      (9)   <- BC
 !     ORC      (10)  <- POM, SOA, MOM
-!     SSA      (11)  <- Na (seasalt), Cl   in accumulation + Aitken modes
-!     SSC      (12)  <- Na (seasalt), Cl   in coarse mode
+!     SSA      (11)  <- Na (seasalt), Cl, sea-salt SO4  in accum + Aitken
+!     SSC      (12)  <- Na (seasalt), Cl, sea-salt SO4  in coarse mode
+!   NOTE: in the MOSAIC build the MAM "seasalt" type (GCMAM%sslt, MAMSSLT*
+!   tracers, lptr_nacl_a_amode) holds Na+ only (MAM4 naming heritage; to be
+!   renamed one day).
+!   Sea-salt SO4 (FAB, Step 2 amendment): MAM sea salt is emitted with its own
+!   primary SO4 (HEMCO SeaSalt ext., 'MAM SSA SO4 mass fraction'), which STD
+!   counts inside SALA/SALC area. The primary part of each mode's SO4 is
+!   estimated from non-volatile Na and moved to the SS category:
+!     SO4_ss = min( SO4, SO4_to_Na_SS * Na ),  SO4_nss = SO4 - SO4_ss (-> SUL)
+!   Secondary SO4 (gas/cloud/K_MT production) stays in SUL.
 !   Slots 13-14 (strat. liquid aerosol, ice) are not touched.
 !   Radius of each slot = SA-weighted wet EFFECTIVE radius of contributing
 !   modes, r_eff = 3V/S = r_gv,wet * exp(-0.5 ln^2 sigma) (wetrad is the
@@ -1915,6 +1924,10 @@ SUBROUTINE MAM_to_HETRATES( Input_Opt, State_Chm, State_Grid, State_Met )
          'chloride  ', 'dust      ', 'calcium   ', 'carbonate ' /)
     INTEGER,  PARAMETER :: spcCat(NSPC) = (/ cSNA, cSNA, cSNA, cBC,         &
                            cOM, cOM, cOM, cSS, cSS, cDST, cDST, cDST /)
+    ! FAB: sea-salt SO4/Na emitted mass ratio = 'MAM SSA SO4 mass fraction' /
+    ! 'MAM SSA Na mass fraction' in HEMCO_Config.rc (defaults 0.077/0.385,
+    ! hcox_seasalt_mod.F90). Hard-coded: KEEP IN SYNC if those options change.
+    REAL(fp), PARAMETER :: SO4_to_Na_SS = 0.077_fp / 0.385_fp
 
     REAL(fp) :: rDens(NSPC), kappa(NSPC)
     REAL(fp) :: vol(NCAT), kvol(NCAT), mass(NSPC)
@@ -1991,6 +2004,17 @@ SUBROUTINE MAM_to_HETRATES( Input_Opt, State_Chm, State_Grid, State_Met )
              vol(c)  = vol(c)  + a
              kvol(c) = kvol(c) + kappa(k) * a
           END DO
+
+          ! FAB: move primary sea-salt SO4 (estimated from Na = mass(8)) from
+          ! the SNA to the SS category (see header)
+          a = MIN( MAX( mass(1), 0.0_fp ),                                   &
+                   SO4_to_Na_SS * MAX( mass(8), 0.0_fp ) ) * rDens(1)
+          a = MIN( a, vol(cSNA) )
+          vol(cSNA)  = vol(cSNA)  - a
+          vol(cSS)   = vol(cSS)   + a
+          kvol(cSNA) = MAX( kvol(cSNA) - kappa(1) * a, 0.0_fp )
+          kvol(cSS)  = kvol(cSS)  + kappa(1) * a
+
           vtot  = SUM( vol  )
           kvtot = SUM( kvol )
           IF ( vtot <= 0.0_fp ) CYCLE

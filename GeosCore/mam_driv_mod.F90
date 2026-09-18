@@ -54,12 +54,10 @@ REAL(fp), pointer, public :: H2SO4_RATE(:,:,:) ! H2SO4 prod rate [kg s-1]
 !
 ! FAB: sea-salt Na and primary SO4 mass fractions = 'MAM SSA Na mass fraction'
 ! and 'MAM SSA SO4 mass fraction' in HEMCO_Config.rc (hcox_seasalt_mod.F90
-! defaults). Used by MAM_COLDSTART_FROM_GC. KEEP IN SYNC if those HEMCO
-! options change.
+! defaults). Used by MAM_to_HETRATES and MAM_COLDSTART_FROM_GC. KEEP IN SYNC
+! if those HEMCO options change.
 REAL(fp), PARAMETER :: SS_NA_MF  = 0.385_fp
 REAL(fp), PARAMETER :: SS_SO4_MF = 0.077_fp
-! 
-REAL(fp), pointer, public :: PSO4_SO2MAM(:,:,:)
 !
 
 TYPE(physics_buffer_desc), pointer :: pbuf(:)
@@ -91,6 +89,12 @@ INTEGER nmamgc ! number of GC advected MAM tracers
 ! SALACL/SALCCL shadowing is active (needs Cl- in accumulation + coarse).
 INTEGER, ALLOCATABLE :: id_MAMCL(:)
 LOGICAL              :: lshadow_cl = .FALSE.
+
+! FAB (MAM-decouple-std, Step 3b): same for the INTERSTITIAL MAM NO3- tracer of
+! each mode, used to shadow the KPP NIT/NITs.  Tropospheric boxes only: in the
+! stratosphere STD NIT is the UCX NAT/PSC nitrate reservoir (ucx_mod.F90).
+INTEGER, ALLOCATABLE :: id_MAMNO3(:)
+LOGICAL              :: lshadow_no3 = .FALSE.
 
 
     INTEGER:: loffset, lchnk
@@ -1027,7 +1031,6 @@ CALL MAM_INIT_OPT()
 !allocate specific GC diqg usefull for mam  
 ALLOCATE( PSO4AQ_RATE(State_Grid%NX,State_Grid%NY,State_Grid%NZ) )
 ALLOCATE( H2SO4_RATE(State_Grid%NX,State_Grid%NY,State_Grid%NZ) )
-ALLOCATE( PSO4_SO2MAM(State_Grid%NX,State_Grid%NY,State_Grid%NZ) )
 !FAB Step 2b: sea-salt aqueous SO4 production (1 = fine, 2 = coarse)
 ALLOCATE( PSO4SS_RATE(State_Grid%NX,State_Grid%NY,State_Grid%NZ,2) )
 PSO4SS_RATE = 0.0_fp
@@ -1117,6 +1120,20 @@ END DO
  END IF
  IF ( masterproc ) WRITE(*,*) 'MAM_INIT: KPP SALACL/SALCCL shadowed from MAM Cl- : ', lshadow_cl
 
+! FAB (MAM-decouple-std, Step 3b): interstitial NO3- tracer per mode, for the
+! KPP NIT/NITs shadowing (MAM_KPP_Shadow_In/Out, troposphere only)
+ ALLOCATE(id_MAMNO3(ntot_amode))
+ id_MAMNO3 = -1
+ DO i = 1, nmamgc
+   IF ( mamgc(i)%iscb .OR. mamgc(i)%isnum ) CYCLE
+   IF ( mamgc(i)%name(4:6) == 'NO3' ) id_MAMNO3(mamgc(i)%modId) = mamgc(i)%gcind
+ END DO
+ lshadow_no3 = .FALSE.
+ IF ( modeptr_accum > 0 .AND. modeptr_coarse > 0 ) THEN
+   lshadow_no3 = ( id_MAMNO3(modeptr_accum) > 0 .AND. id_MAMNO3(modeptr_coarse) > 0 )
+ END IF
+ IF ( masterproc ) WRITE(*,*) 'MAM_INIT: KPP NIT/NITs shadowed from MAM NO3- (trop only) : ', lshadow_no3
+
 END SUBROUTINE MAM_INIT
 
 !------------------------------------------------------------------------------
@@ -1136,30 +1153,59 @@ END SUBROUTINE MAM_INIT
 !  Cloud-borne Cl- is excluded (aerosol-water chemistry; cloud water is
 !  handled separately, Step 4). MAM Cl tracers have MW 35.45 like SALACL,
 !  so molecule numbers are copied directly.
+!
+!  FAB (MAM-decouple-std, Step 3b). Same treatment for the KPP fine/coarse
+!  nitrate NIT/NITs, which are produced by NO3 hydrolysis on sea salt
+!  (fullchem.eqn:1697-1698), consumed by particulate nitrate photolysis
+!  (PHOTOL 130-133) and read by the N2O5 uptake rate law -- all processes that
+!  belong to the MAM/MOSAIC nitrate, not to a separate STD pool.
+!  **Tropospheric boxes only**: in the stratosphere STD NIT is the UCX NAT
+!  (PSC) nitrate reservoir (ucx_mod.F90:1126-1152) and the PSC flag
+!  natSurface = pscBox .and. C(NIT) > 0 (fullchem_HetStateFuncs.F90:239);
+!  overwriting it with MAM nitrate would break PSC chemistry.  MAM NO3
+!  tracers have MW 62 like NIT, so molecule numbers are copied directly.
 !------------------------------------------------------------------------------
-SUBROUTINE MAM_KPP_Shadow_In( I, J, L, State_Chm )
+SUBROUTINE MAM_KPP_Shadow_In( I, J, L, State_Chm, State_Met )
 
     USE gckpp_Global,     ONLY : C
     USE gckpp_Parameters, ONLY : ind_SALACL, ind_SALCCL
+    USE gckpp_Parameters, ONLY : ind_NIT,    ind_NITs
     USE State_Chm_Mod,    ONLY : ChmState
+    USE State_Met_Mod,    ONLY : MetState
     USE modal_aero_data,  ONLY : modeptr_accum, modeptr_aitken, modeptr_coarse
 
     INTEGER,        INTENT(IN) :: I, J, L
     TYPE(ChmState), INTENT(IN) :: State_Chm
+    TYPE(MetState), INTENT(IN) :: State_Met
 
     REAL(fp) :: fine
 
-    IF ( .NOT. lshadow_cl ) RETURN
+    IF ( lshadow_cl ) THEN
 
-    fine = MAX( State_Chm%Species(id_MAMCL(modeptr_accum))%Conc(I,J,L), 0.0_fp )
-    IF ( modeptr_aitken > 0 ) THEN
-       IF ( id_MAMCL(modeptr_aitken) > 0 ) fine = fine +                     &
-          MAX( State_Chm%Species(id_MAMCL(modeptr_aitken))%Conc(I,J,L), 0.0_fp )
+       fine = MAX( State_Chm%Species(id_MAMCL(modeptr_accum))%Conc(I,J,L), 0.0_fp )
+       IF ( modeptr_aitken > 0 ) THEN
+          IF ( id_MAMCL(modeptr_aitken) > 0 ) fine = fine +                  &
+             MAX( State_Chm%Species(id_MAMCL(modeptr_aitken))%Conc(I,J,L), 0.0_fp )
+       ENDIF
+
+       C(ind_SALACL) = REAL( fine, kind=KIND(C) )
+       C(ind_SALCCL) = REAL( MAX( State_Chm%Species(id_MAMCL(modeptr_coarse))%Conc(I,J,L), &
+                                  0.0_fp ), kind=KIND(C) )
     ENDIF
 
-    C(ind_SALACL) = REAL( fine, kind=KIND(C) )
-    C(ind_SALCCL) = REAL( MAX( State_Chm%Species(id_MAMCL(modeptr_coarse))%Conc(I,J,L), &
-                               0.0_fp ), kind=KIND(C) )
+    ! Step 3b: nitrate, troposphere only (same gate as MAM_KPP_Shadow_Out)
+    IF ( lshadow_no3 .AND. State_Met%InTroposphere(I,J,L) ) THEN
+
+       fine = MAX( State_Chm%Species(id_MAMNO3(modeptr_accum))%Conc(I,J,L), 0.0_fp )
+       IF ( modeptr_aitken > 0 ) THEN
+          IF ( id_MAMNO3(modeptr_aitken) > 0 ) fine = fine +                 &
+             MAX( State_Chm%Species(id_MAMNO3(modeptr_aitken))%Conc(I,J,L), 0.0_fp )
+       ENDIF
+
+       C(ind_NIT)  = REAL( fine, kind=KIND(C) )
+       C(ind_NITs) = REAL( MAX( State_Chm%Species(id_MAMNO3(modeptr_coarse))%Conc(I,J,L), &
+                                0.0_fp ), kind=KIND(C) )
+    ENDIF
 
 END SUBROUTINE MAM_KPP_Shadow_In
 
@@ -1177,29 +1223,50 @@ END SUBROUTINE MAM_KPP_Shadow_In
 !  if there is no pre-existing Cl-, a gain goes to the accumulation mode.
 !  Note: the STD SALACL/SALCCL tracers are overwritten by the copy-back with
 !  the post-KPP shadow values, i.e. they become a copy of MAM Cl-.
+!
+!  FAB (MAM-decouple-std, Step 3b). Same for NIT/NITs -> MAM NO3-, in
+!  tropospheric boxes only.  The gate must be identical to the one in
+!  MAM_KPP_Shadow_In: where the shadow was not applied, C_before holds the STD
+!  value and the difference is meaningless for MAM.
 !------------------------------------------------------------------------------
-SUBROUTINE MAM_KPP_Shadow_Out( I, J, L, State_Chm, C_before )
+SUBROUTINE MAM_KPP_Shadow_Out( I, J, L, State_Chm, State_Met, C_before )
 
     USE gckpp_Global,     ONLY : C
     USE gckpp_Parameters, ONLY : ind_SALACL, ind_SALCCL
+    USE gckpp_Parameters, ONLY : ind_NIT,    ind_NITs
     USE State_Chm_Mod,    ONLY : ChmState
+    USE State_Met_Mod,    ONLY : MetState
     USE modal_aero_data,  ONLY : modeptr_accum, modeptr_aitken, modeptr_coarse
 
     INTEGER,        INTENT(IN)    :: I, J, L
     TYPE(ChmState), INTENT(INOUT) :: State_Chm
+    TYPE(MetState), INTENT(IN)    :: State_Met
     REAL(KIND=KIND(C)), INTENT(IN) :: C_before(:)   ! KPP C before Integrate
 
     INTEGER  :: mlist(2)
 
-    IF ( .NOT. lshadow_cl ) RETURN
+    IF ( lshadow_cl ) THEN
 
-    mlist = (/ modeptr_accum, modeptr_aitken /)
-    CALL Shadow_Distribute( I, J, L, State_Chm, id_MAMCL, mlist,             &
-                            REAL( C(ind_SALACL) - C_before(ind_SALACL), fp ) )
+       mlist = (/ modeptr_accum, modeptr_aitken /)
+       CALL Shadow_Distribute( I, J, L, State_Chm, id_MAMCL, mlist,          &
+                               REAL( C(ind_SALACL) - C_before(ind_SALACL), fp ) )
 
-    mlist = (/ modeptr_coarse, -1 /)
-    CALL Shadow_Distribute( I, J, L, State_Chm, id_MAMCL, mlist,             &
-                            REAL( C(ind_SALCCL) - C_before(ind_SALCCL), fp ) )
+       mlist = (/ modeptr_coarse, -1 /)
+       CALL Shadow_Distribute( I, J, L, State_Chm, id_MAMCL, mlist,          &
+                               REAL( C(ind_SALCCL) - C_before(ind_SALCCL), fp ) )
+    ENDIF
+
+    ! Step 3b: nitrate, troposphere only (same gate as MAM_KPP_Shadow_In)
+    IF ( lshadow_no3 .AND. State_Met%InTroposphere(I,J,L) ) THEN
+
+       mlist = (/ modeptr_accum, modeptr_aitken /)
+       CALL Shadow_Distribute( I, J, L, State_Chm, id_MAMNO3, mlist,         &
+                               REAL( C(ind_NIT) - C_before(ind_NIT), fp ) )
+
+       mlist = (/ modeptr_coarse, -1 /)
+       CALL Shadow_Distribute( I, J, L, State_Chm, id_MAMNO3, mlist,         &
+                               REAL( C(ind_NITs) - C_before(ind_NITs), fp ) )
+    ENDIF
 
 END SUBROUTINE MAM_KPP_Shadow_Out
 
@@ -2283,10 +2350,8 @@ SUBROUTINE MAM_to_HETRATES( Input_Opt, State_Chm, State_Grid, State_Met )
          'chloride  ', 'dust      ', 'calcium   ', 'carbonate ' /)
     INTEGER,  PARAMETER :: spcCat(NSPC) = (/ cSNA, cSNA, cSNA, cBC,         &
                            cOM, cOM, cOM, cSS, cSS, cDST, cDST, cDST /)
-    ! FAB: sea-salt SO4/Na emitted mass ratio = 'MAM SSA SO4 mass fraction' /
-    ! 'MAM SSA Na mass fraction' in HEMCO_Config.rc (defaults 0.077/0.385,
-    ! hcox_seasalt_mod.F90). Hard-coded: KEEP IN SYNC if those options change.
-    REAL(fp), PARAMETER :: SO4_to_Na_SS = 0.077_fp / 0.385_fp
+    ! FAB: sea-salt SO4/Na emitted mass ratio (module parameters, HEMCO values)
+    REAL(fp), PARAMETER :: SO4_to_Na_SS = SS_SO4_MF / SS_NA_MF
 
     REAL(fp) :: rDens(NSPC), kappa(NSPC)
     REAL(fp) :: vol(NCAT), kvol(NCAT), mass(NSPC)

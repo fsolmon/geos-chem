@@ -837,10 +837,12 @@ CONTAINS
        ENDDO
 
 #if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM )
-       ! FAB (MAM-decouple-std, Step 3): overwrite KPP sea-salt Cl- (SALACL,
-       ! SALCCL) with MAM interstitial Cl- before any rate / het-state setup,
-       ! so C_before_integrate holds the shadow values (see mam_driv_mod.F90)
-       CALL MAM_KPP_Shadow_In( I, J, L, State_Chm )
+       ! FAB (MAM-decouple-std, Steps 3/3b): overwrite KPP sea-salt Cl-
+       ! (SALACL, SALCCL) with MAM interstitial Cl-, and -- in tropospheric
+       ! boxes only -- NIT/NITs with MAM interstitial NO3-, before any rate /
+       ! het-state setup, so C_before_integrate holds the shadow values
+       ! (see mam_driv_mod.F90)
+       CALL MAM_KPP_Shadow_In( I, J, L, State_Chm, State_Met )
 #endif
 
        !=====================================================================
@@ -1394,9 +1396,11 @@ CONTAINS
        ENDDO
 
 #if ( defined MODAL_AERO_4MODE || defined MODAL_AERO_4MODE_MOM )
-       ! FAB (MAM-decouple-std, Step 3): return the KPP change of the shadowed
-       ! SALACL/SALCCL to MAM interstitial Cl- (see mam_driv_mod.F90)
-       CALL MAM_KPP_Shadow_Out( I, J, L, State_Chm, C_before_integrate )
+       ! FAB (MAM-decouple-std, Steps 3/3b): return the KPP change of the
+       ! shadowed SALACL/SALCCL to MAM interstitial Cl- and of NIT/NITs to MAM
+       ! interstitial NO3- (see mam_driv_mod.F90)
+       CALL MAM_KPP_Shadow_Out( I, J, L, State_Chm, State_Met,               &
+                                C_before_integrate )
 #endif
 
 #if defined(TOMAS) || defined(MODAL_AERO_4MODE) || defined(MODAL_AERO_4MODE_MOM)

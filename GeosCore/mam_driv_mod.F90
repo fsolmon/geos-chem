@@ -46,6 +46,13 @@ PUBLIC :: MAM_DRIV, MAM_INIT, MAM_APPLY_RAINOUT_EFF, MAM_OPT_to_RRTMG, MAM_ACTIV
 ! perhaps use AeroMass state variables 
 REAL(fp), pointer, public :: PSO4AQ_RATE(:,:,:) ! Cld chem sulfate prod rate [kg s-1]  
 REAL(fp), pointer, public :: H2SO4_RATE(:,:,:) ! H2SO4 prod rate [kg s-1]
+!
+! FAB: sea-salt Na and primary SO4 mass fractions = 'MAM SSA Na mass fraction'
+! and 'MAM SSA SO4 mass fraction' in HEMCO_Config.rc (hcox_seasalt_mod.F90
+! defaults). Used by MAM_COLDSTART_FROM_GC. KEEP IN SYNC if those HEMCO
+! options change.
+REAL(fp), PARAMETER :: SS_NA_MF  = 0.385_fp
+REAL(fp), PARAMETER :: SS_SO4_MF = 0.077_fp
 ! 
 REAL(fp), pointer, public :: PSO4_SO2MAM(:,:,:)
 !
@@ -265,29 +272,11 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
 
      CALL MAM_cold_start (physta)
  
-     IF ( mdo_coldstart == 1) then
-     ! mdo_coldstart initialies in Mam_cold_start
-     DO L = 1, State_Grid%NZ
-     DO J = 1, State_Grid%NY
-     DO I = 1, State_Grid%NX ! 
-       n = J + (I-1)*State_Grid%NY
-! Cold-start overrides of MAM accumulation-mode SO4/NO3/NH4 mass + number from
-! the equivalent standard GC species, so MAM and standard chem start from
-! the same aerosol burden.
-       physta%q(n,l,lptr_so4_a_amode(1)) = Spc(IND_('SO4'))%Conc(I,J,L)/State_Met%AD(I,J,L)
-       physta%q(n,l,numptr_amode(1)) =    physta%q(n,l,lptr_so4_a_amode(1)) /1700. * voltonumb_amode(1)
-
-       physta%q(n,l,lptr_no3_a_amode(1)) = Spc(IND_('NIT'))%Conc(I,J,L)/State_Met%AD(I,J,L)
-       physta%q(n,l,numptr_amode(1)) =   physta%q(n,l,numptr_amode(1))+  physta%q(n,l,lptr_no3_a_amode(1)) /1700. * voltonumb_amode(1)
-
-       physta%q(n,l,lptr_nh4_a_amode(1)) = Spc(IND_('NH4'))%Conc(I,J,L)/State_Met%AD(I,J,L)
-       physta%q(n,l,numptr_amode(1)) =   physta%q(n,l,numptr_amode(1))+  physta%q(n,l,lptr_nh4_a_amode(1)) /1700. * voltonumb_amode(1)
-
-!      Spc(IND_('MAMDEV'))%Conc(I,J,L) = Spc(IND_('SO4'))%Conc(I,J,L)
-    END DO
-    END DO
-    END DO
-    ENDIF
+     ! FAB (cold-start fix, 2026-09-18): MAM_cold_start (namelist
+     ! &chem_input) put the surface composition at every level up to the
+     ! model top. Overwrite the whole interstitial state from the GC tracers
+     ! of the restart, troposphere only (see MAM_COLDSTART_FROM_GC).
+     IF ( mdo_coldstart == 1 ) CALL MAM_COLDSTART_FROM_GC( State_Chm, State_Grid, State_Met )
     ENDIF
 
 
@@ -625,6 +614,200 @@ END IF
 
 
   END SUBROUTINE MAM_DRIV
+
+!------------------------------------------------------------------------------
+! !IROUTINE: MAM_COLDSTART_FROM_GC
+!
+! !DESCRIPTION:
+!  FAB (2026-09-18): cold start of the MAM interstitial
+!  aerosol (physta%q) from the GEOS-Chem standard aerosol tracers of the
+!  restart file, box by box. Called once, on the first MAM_DRIV call, when
+!  mdo_coldstart = 1 (run namelist), after MAM_cold_start.
+!
+!  Replaces the former initialisation, where MAM_cold_start set every level
+!  to the &chem_input surface composition (surface mass mixing ratio up to
+!  the model top) and only accumulation-mode SO4/NO3/NH4 were overwritten
+!  from SO4/NIT/NH4 -- at all levels, Junge layer and NAT included. That
+!  put surface-like sea salt, dust and OA into the stratosphere, where MOSAIC
+!  then released HCl (MAM/devnotes.md section 11.14.4).
+!
+!  Troposphere only: in stratospheric boxes (InStratMeso) all MAM aerosol
+!  starts at zero, since stratospheric SO4/NIT belong to UCX (devnotes
+!  section 11.14.5). Cloud-borne aerosol starts at zero (qqcw is zeroed at
+!  allocation).
+!
+!  Mapping, GC tracer mass [kg] -> MAM species:
+!    accumulation: SO4 + SS_SO4_MF*SALA -> so4 ; NIT -> no3 ; NH4 -> nh4
+!                  SS_NA_MF*SALA -> nacl (Na+) ; SALACL -> cl
+!                  DSTbin1-3 -> dust/ca/co3 ; BCPI -> bc
+!                  OMOC_OPOA*OCPI -> pom ; SOAS -> soa
+!    Aitken      : empty (spins up from nucleation and emissions)
+!    coarse      : SO4s + SS_SO4_MF*SALC -> so4 ; NITs -> no3
+!                  SS_NA_MF*SALC -> nacl ; SALCCL -> cl ; DSTbin4-7 -> dust/ca/co3
+!    primary C   : BCPO -> bc ; OMOC_POA*OCPO -> pom
+!    MOM         : none (no GC tracer in the restart)
+!  DSTbin1-3 (r_eff <= 0.4 um) go to the accumulation mode, i.e. the same
+!  0.5 um split as SALA/SALC. Dust composition OIM/Ca/CO3 = 0.95/0.02/0.03 in
+!  both modes (HEMCO scale factors 5021-5029, normalised). OM/OC falls back
+!  to 1.4 (POA) / 2.1 (OPOA) if State_Chm%OMOC_* is not set yet.
+!  Number of each mode from its dry volume: N = sum(m/rho) * voltonumb_amode.
+!------------------------------------------------------------------------------
+  SUBROUTINE MAM_COLDSTART_FROM_GC( State_Chm, State_Grid, State_Met )
+
+    USE Species_Mod,     ONLY : SpcConc
+    USE State_Chm_Mod,   ONLY : ChmState, Ind_
+    USE State_Grid_Mod,  ONLY : GrdState
+    USE State_Met_Mod,   ONLY : MetState
+    USE modal_aero_data, ONLY : ntot_amode, nspec_amode, lmassptr_amode,     &
+                                lspectype_amode, specdens_amode,             &
+                                numptr_amode, voltonumb_amode,               &
+                                modeptr_accum, modeptr_coarse,               &
+                                modeptr_pcarbon,                             &
+                                lptr_so4_a_amode, lptr_no3_a_amode,          &
+                                lptr_nh4_a_amode, lptr_nacl_a_amode,         &
+                                lptr_cl_a_amode,  lptr_dust_a_amode,         &
+                                lptr_ca_a_amode,  lptr_co3_a_amode,          &
+                                lptr_bc_a_amode,  lptr_pom_a_amode,          &
+                                lptr_soa_a_amode
+
+    TYPE(ChmState), INTENT(IN) :: State_Chm
+    TYPE(GrdState), INTENT(IN) :: State_Grid
+    TYPE(MetState), INTENT(IN) :: State_Met
+
+    ! Dust bins 1..NDST_ACC -> accumulation mode, the rest -> coarse mode
+    INTEGER,  PARAMETER :: NDST = 7, NDST_ACC = 3
+    ! Dust composition (other inorganic / Ca / CO3), HEMCO 5021-5029
+    REAL(fp), PARAMETER :: DST_OIM_MF = 0.95_fp, DST_CA_MF = 0.02_fp,       &
+                           DST_CO3_MF = 0.03_fp
+    ! Fallback OM/OC ratios (GEOS-Chem defaults)
+    REAL(fp), PARAMETER :: OMOC_POA_DEF = 1.4_fp, OMOC_OPOA_DEF = 2.1_fp
+
+    TYPE(SpcConc), POINTER :: Spc(:)
+    INTEGER  :: I, J, L, n, m, k, l1
+    INTEGER  :: iSO4, iSO4s, iNIT, iNITs, iNH4, iSALA, iSALC, iSALACL
+    INTEGER  :: iSALCCL, iBCPI, iBCPO, iOCPI, iOCPO, iSOAS, iDST(NDST)
+    REAL(fp) :: rAD, dstAcc, dstCor, omocPOA, omocOPOA, drv
+    CHARACTER(LEN=7) :: dstName
+
+    Spc => State_Chm%Species
+
+    iSO4    = Ind_('SO4'   );  iSO4s   = Ind_('SO4s'  )
+    iNIT    = Ind_('NIT'   );  iNITs   = Ind_('NITs'  )
+    iNH4    = Ind_('NH4'   )
+    iSALA   = Ind_('SALA'  );  iSALC   = Ind_('SALC'  )
+    iSALACL = Ind_('SALACL');  iSALCCL = Ind_('SALCCL')
+    iBCPI   = Ind_('BCPI'  );  iBCPO   = Ind_('BCPO'  )
+    iOCPI   = Ind_('OCPI'  );  iOCPO   = Ind_('OCPO'  )
+    iSOAS   = Ind_('SOAS'  )
+    DO k = 1, NDST
+       WRITE( dstName, '(a6,i1)' ) 'DSTbin', k
+       iDST(k) = Ind_( dstName )
+    END DO
+
+    DO L = 1, State_Grid%NZ
+    DO J = 1, State_Grid%NY
+    DO I = 1, State_Grid%NX
+       n = J + (I-1)*State_Grid%NY
+
+       ! Discard the MAM_cold_start (namelist) composition in every box
+       DO m = 1, ntot_amode
+          DO l1 = 1, nspec_amode(m)
+             physta%q(n,L,lmassptr_amode(l1,m)) = 0.0_r8
+          END DO
+          physta%q(n,L,numptr_amode(m)) = 0.0_r8
+       END DO
+
+       ! Stratosphere: MAM aerosol starts empty (UCX owns SO4/NIT there)
+       IF ( State_Met%InStratMeso(I,J,L) ) CYCLE
+
+       rAD = 1.0_fp / State_Met%AD(I,J,L)
+
+       omocPOA  = OMOC_POA_DEF
+       omocOPOA = OMOC_OPOA_DEF
+       IF ( ASSOCIATED( State_Chm%OMOC_POA ) ) THEN
+          IF ( State_Chm%OMOC_POA(I,J)  > 0.0_fp ) omocPOA  = State_Chm%OMOC_POA(I,J)
+       ENDIF
+       IF ( ASSOCIATED( State_Chm%OMOC_OPOA ) ) THEN
+          IF ( State_Chm%OMOC_OPOA(I,J) > 0.0_fp ) omocOPOA = State_Chm%OMOC_OPOA(I,J)
+       ENDIF
+
+       dstAcc = 0.0_fp
+       dstCor = 0.0_fp
+       DO k = 1, NDST
+          IF ( k <= NDST_ACC ) THEN
+             dstAcc = dstAcc + GCmass( iDST(k) )
+          ELSE
+             dstCor = dstCor + GCmass( iDST(k) )
+          ENDIF
+       END DO
+
+       ! Accumulation mode
+       m = modeptr_accum
+       CALL Put( lptr_so4_a_amode(m),  GCmass(iSO4) + SS_SO4_MF * GCmass(iSALA) )
+       CALL Put( lptr_no3_a_amode(m),  GCmass(iNIT)                             )
+       CALL Put( lptr_nh4_a_amode(m),  GCmass(iNH4)                             )
+       CALL Put( lptr_nacl_a_amode(m), SS_NA_MF * GCmass(iSALA)                 )
+       CALL Put( lptr_cl_a_amode(m),   GCmass(iSALACL)                          )
+       CALL Put( lptr_dust_a_amode(m), DST_OIM_MF * dstAcc                      )
+       CALL Put( lptr_ca_a_amode(m),   DST_CA_MF  * dstAcc                      )
+       CALL Put( lptr_co3_a_amode(m),  DST_CO3_MF * dstAcc                      )
+       CALL Put( lptr_bc_a_amode(m),   GCmass(iBCPI)                            )
+       CALL Put( lptr_pom_a_amode(m),  omocOPOA * GCmass(iOCPI)                 )
+       CALL Put( lptr_soa_a_amode(m),  GCmass(iSOAS)                            )
+
+       ! Coarse mode
+       m = modeptr_coarse
+       CALL Put( lptr_so4_a_amode(m),  GCmass(iSO4s) + SS_SO4_MF * GCmass(iSALC) )
+       CALL Put( lptr_no3_a_amode(m),  GCmass(iNITs)                             )
+       CALL Put( lptr_nacl_a_amode(m), SS_NA_MF * GCmass(iSALC)                  )
+       CALL Put( lptr_cl_a_amode(m),   GCmass(iSALCCL)                           )
+       CALL Put( lptr_dust_a_amode(m), DST_OIM_MF * dstCor                       )
+       CALL Put( lptr_ca_a_amode(m),   DST_CA_MF  * dstCor                       )
+       CALL Put( lptr_co3_a_amode(m),  DST_CO3_MF * dstCor                       )
+
+       ! Primary carbon mode
+       m = modeptr_pcarbon
+       IF ( m > 0 ) THEN
+          CALL Put( lptr_bc_a_amode(m),  GCmass(iBCPO)           )
+          CALL Put( lptr_pom_a_amode(m), omocPOA * GCmass(iOCPO) )
+       ENDIF
+
+       ! Number from dry volume (as in MAM_cold_start)
+       DO m = 1, ntot_amode
+          drv = 0.0_fp
+          DO l1 = 1, nspec_amode(m)
+             drv = drv + MAX( 0.0_r8, physta%q(n,L,lmassptr_amode(l1,m)) )   &
+                       / specdens_amode( lspectype_amode(l1,m) )
+          END DO
+          physta%q(n,L,numptr_amode(m)) = drv * voltonumb_amode(m)
+       END DO
+
+    END DO
+    END DO
+    END DO
+
+    Spc => NULL()
+
+    IF ( masterproc ) WRITE(*,*) 'MAM_COLDSTART_FROM_GC: MAM aerosol ' //   &
+         'initialised from GC tracers (troposphere only)'
+
+  CONTAINS
+
+    ! Mass [kg] of GC tracer id in box (I,J,L); 0 if the tracer is absent
+    REAL(fp) FUNCTION GCmass( id )
+      INTEGER, INTENT(IN) :: id
+      GCmass = 0.0_fp
+      IF ( id > 0 ) GCmass = MAX( Spc(id)%Conc(I,J,L), 0.0_fp )
+    END FUNCTION GCmass
+
+    ! Add mass [kg] to MAM species lptr as a mass mixing ratio [kg/kg]
+    SUBROUTINE Put( lptr, mass )
+      INTEGER,  INTENT(IN) :: lptr
+      REAL(fp), INTENT(IN) :: mass
+      IF ( lptr > 0 ) physta%q(n,L,lptr) = physta%q(n,L,lptr) + mass * rAD
+    END SUBROUTINE Put
+
+  END SUBROUTINE MAM_COLDSTART_FROM_GC
 
 !------------------------------------------------------------------------------
 ! !IROUTINE: MAM_ACTIVATE_EVAP

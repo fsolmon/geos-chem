@@ -1883,7 +1883,22 @@ CONTAINS
                 ENDIF
                 RTASYMAER(I,J,L,IWV,NRT)   = SCALEASY*ASYMAA(IWV,1,N,State_Chm%Phot%DRg)
              ENDIF
-#endif             
+#else
+             ! FAB (MAM-decouple-std, register #21): under MAM the tropospheric
+             ! RT slots (1-7, 10-16) are filled by MAM_OPT_to_RRTMG, which runs
+             ! after this loop. The STRATOSPHERIC slots remain UCX's: NRT = 8
+             ! (SLA) and 9 (PSC), from N = NRHAER+1, NRHAER+2 -> ISTRAT = 1, 2.
+             ! This whole block used to be compiled out under MAM, so the UCX
+             ! stratospheric aerosol was absent from RRTMG altogether and MAM's
+             ! own (ungated) stratosphere stood in for it -- counted once, but
+             ! by the wrong owner (devnotes 11.14.2). Fill the strat slots only;
+             ! MAM_OPT_to_RRTMG deliberately does not zero 8/9.
+             IF ( ISTRAT .GT. 0 ) THEN
+                RTODAER  (I,J,L,IWV,NRT) = ODAER(I,J,L,IWV,N)
+                RTSSAER  (I,J,L,IWV,NRT) = SCALESSA*SSAA(IWV,1,N,State_Chm%Phot%DRg)
+                RTASYMAER(I,J,L,IWV,NRT) = SCALEASY*ASYMAA(IWV,1,N,State_Chm%Phot%DRg)
+             ENDIF
+#endif
 #endif
 
              ! Only need to do hyg once, not for each wavelength
@@ -2043,7 +2058,7 @@ CONTAINS
 #if ( defined(MODAL_AERO_4MODE_MOM) )
 ! should be revisited when improving logical flow between aerosol options
    call MAM_OPT_to_RRTMG (Input_Opt,  State_Chm,  State_Diag, &
-                               State_Grid)
+                               State_Grid, State_Met)
 #endif
 #endif
 
@@ -2051,7 +2066,7 @@ CONTAINS
     ! Replace legacy aerosol optical depths in ODAER with MAM values for
     ! Fast-JX photolysis.  Only needed on the ODSWITCH=0 call (1000 nm).
     IF ( ODSWITCH == 0 ) THEN
-       CALL MAM_OPT_to_PHOTOL( Input_Opt, State_Chm, State_Grid )
+       CALL MAM_OPT_to_PHOTOL( Input_Opt, State_Chm, State_Grid, State_Met )
     END IF
 #endif
 

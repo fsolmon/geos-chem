@@ -1309,7 +1309,32 @@ CONTAINS
                 SEDICE = SEDICE*ICEMW/INVAIR_0
 
                 SEDNO3 = MIN(SEDNO3,Spc(id_NIT)%Conc(I,J,L+1))
+#ifdef MOSAIC_SPECIES
+                ! FAB (MAM-decouple-std, register #22): NAT settling into a
+                ! *tropospheric* destination box. Under MAM the tropospheric
+                ! STD NIT is a shadow of MAM NO3-: MAM_KPP_Shadow_In overwrites
+                ! C(ind_NIT) from MAM before KPP, so anything deposited into
+                ! Spc(NIT) here is discarded at the KPP copy-back -- a one-way
+                ! nitrogen sink at the tropopause (polar denitrification flux).
+                ! Deposit it as HNO3 instead: NAT falling into warm air
+                ! evaporates, MOSAIC repartitions the HNO3 onto MAM aerosol at
+                ! the next MAM_DRIV, and N is conserved exactly. Note Do_ATE is
+                ! not called in this build (chemistry_mod.F90, #ifndef
+                ! MOSAIC_SPECIES), so leaving it in NIT would strand it even
+                ! with the shadow off. Stratospheric destinations are unchanged
+                ! -- UCX still owns them. SEDNO3 itself is deliberately NOT
+                ! rescaled: it is reused below for SEDNAT/SEDPSC and for the
+                ! source-box decrement. Mass conversion NIT->HNO3 follows the
+                ! same convention as L1773 and L2018 in this file.
+                IF ( State_Met%InTroposphere(I,J,L) ) THEN
+                   Spc(id_HNO3)%Conc(I,J,L) = Spc(id_HNO3)%Conc(I,J,L)         &
+                                            + SEDNO3 * HNO3_MW_G / NIT_MW_G
+                ELSE
+                   Spc(id_NIT)%Conc(I,J,L)  = Spc(id_NIT)%Conc(I,J,L) + SEDNO3
+                ENDIF
+#else
                 Spc(id_NIT)%Conc(I,J,L) = Spc(id_NIT)%Conc(I,J,L) + SEDNO3
+#endif
                 Spc(id_NIT)%Conc(I,J,L+1)=Spc(id_NIT)%Conc(I,J,L+1)-SEDNO3
 
                 ! Settle the ice out too

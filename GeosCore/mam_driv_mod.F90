@@ -59,6 +59,34 @@ REAL(fp), pointer, public :: H2SO4_RATE(:,:,:) ! H2SO4 prod rate [kg s-1]
 REAL(fp), PARAMETER :: SS_NA_MF  = 0.385_fp
 REAL(fp), PARAMETER :: SS_SO4_MF = 0.077_fp
 !
+! FAB: extent of the MAM cold start (MAM_COLDSTART_FROM_GC).
+!   .TRUE.  -- stratospheric boxes start EMPTY: UCX owns SO4/NIT aloft and MAM
+!     holds nothing there. This is the setting on this branch, and it is the
+!     one consistent with the gates below.
+!   .FALSE. -- fill every box from the GC restart tracers, stratosphere
+!     included (the baseline-tree setting).
+!
+! IMPORTANT -- this flag does NOT switch MOSAIC on or off. On this branch the
+! gates are UNCONDITIONAL and do not read it:
+!   #18  MOSAIC gas-aerosol exchange, nucleation and renaming off aloft
+!        (lstrat_in into modal_aero_amicphys_intr; PH2SO4/PSO4AQ/PSO4SS masked)
+!   #19  MAM SNA dropped from MAM_to_HETRATES aloft
+!   #20  MAM OD dropped from MAM_OPT_to_PHOTOL aloft
+!   #21  UCX SLA/PSC own the RRTMG slots aloft
+! MAM is therefore chemically and optically invisible above the tropopause
+! whatever this flag says; the flag decides only whether MAM's stratosphere
+! starts empty or as a copy of the GC restart.
+!
+! In the BASELINE tree the same flag is .FALSE. and the name is apt there,
+! because baseline has no gates at all: MAM runs everywhere, so it must also
+! be initialised everywhere. Here the two questions are separate.
+!
+! Set .TRUE. so that "UCX owns the stratosphere" is a self-consistent
+! configuration end to end -- no inert MAM strat aerosol that would become a
+! spurious tropospheric source on descent (the mirror of register #25).
+! devnotes 11.18.2.
+LOGICAL,  PARAMETER :: MAM_STRAT_GATE = .TRUE.
+!
 
 TYPE(physics_buffer_desc), pointer :: pbuf(:)
 TYPE(physics_state) :: physta
@@ -84,17 +112,16 @@ TYPE(mamspec), pointer :: mamgc(:)
 
 INTEGER nmamgc ! number of GC advected MAM tracers
 
-! FAB (MAM-decouple-std, Step 3): GC species index of the INTERSTITIAL MAM Cl-
-! tracer of each MAM mode (-1 if not carried), and whether the KPP
-! SALACL/SALCCL shadowing is active (needs Cl- in accumulation + coarse).
-INTEGER, ALLOCATABLE :: id_MAMCL(:)
-LOGICAL              :: lshadow_cl = .FALSE.
-
-! FAB (MAM-decouple-std, Step 3b): same for the INTERSTITIAL MAM NO3- tracer of
-! each mode, used to shadow the KPP NIT/NITs.  Tropospheric boxes only: in the
+! FAB (MAM-decouple-std, Steps 3/3b): GC species indices (Ind_, set in
+! MAM_INIT; -1 if not carried) of the INTERSTITIAL MAM Cl- and NO3- tracers
+! used to shadow the KPP SALACL/SALCCL and NIT/NITs. MAM4 modes: 1 =
+! accumulation, 2 = Aitken, 3 = coarse. Shadowing is active only if the
+! accumulation and coarse tracers exist. Tropospheric boxes only: in the
 ! stratosphere STD NIT is the UCX NAT/PSC nitrate reservoir (ucx_mod.F90).
-INTEGER, ALLOCATABLE :: id_MAMNO3(:)
-LOGICAL              :: lshadow_no3 = .FALSE.
+INTEGER :: id_MAMCL1  = -1, id_MAMCL2  = -1, id_MAMCL3  = -1
+INTEGER :: id_MAMNO31 = -1, id_MAMNO32 = -1, id_MAMNO33 = -1
+LOGICAL :: lshadow_cl  = .FALSE.
+LOGICAL :: lshadow_no3 = .FALSE.
 
 
     INTEGER:: loffset, lchnk
@@ -207,6 +234,7 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       real(r8) :: hplus_aer_out(pcols,pver,ntot_amode)
       real(r8) :: relhum_loc(pcols,pver)   ! clear-sky RH for wateruptake
       real(r8) :: pso4ss(pcols,pver,2)     ! FAB Step 2b: sea-salt aq. SO4 [kg/kg per step]
+      logical  :: lstrat(pcols,pver)       ! FAB strat gate: State_Met%InStratMeso
       !-------------
       INTEGER :: latndx(pcols),lonndx(pcols)  ! required by amicphys interface
 !--------------------------------------------------------------------------
@@ -259,6 +287,18 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
       ! FAB Step 2b: sea-salt aqueous SO4 from previous KPP call, kg -> kg/kg
       pso4ss(n,l,1) = PSO4SS_RATE(I,J,L,1) / State_Met%AD(I,J,L)
       pso4ss(n,l,2) = PSO4SS_RATE(I,J,L,2) / State_Met%AD(I,J,L)
+
+      ! FAB (MAM-decouple-std, strat gate): stratospheric sulfate belongs to
+      ! UCX (STD SO4, which gets the same KPP/sulfate_mod production), so no
+      ! gas-phase H2SO4, cloud or sea-salt SO4 production is given to MAM in
+      ! stratospheric boxes. The mask is also passed to amicphys (no MOSAIC
+      ! exchange, nucleation or renaming there; coagulation kept).
+      lstrat(n,l) = State_Met%InStratMeso(I,J,L)
+      IF ( lstrat(n,l) ) THEN
+         physta%ph2so4(n,l) = 0.0_r8
+         physta%paqso4(n,l) = 0.0_r8
+         pso4ss(n,l,:)      = 0.0_r8
+      ENDIF
       ! load q gas ...
       ! the gas phase species SO2,DMS,H2O2 in q are not used/modified 
       ! if we use GC production rate for SO4 instead of MAM simple chem 
@@ -296,7 +336,8 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
      ! FAB (cold-start fix, 2026-09-18): MAM_cold_start (namelist
      ! &chem_input) put the surface composition at every level up to the
      ! model top. Overwrite the whole interstitial state from the GC tracers
-     ! of the restart, troposphere only (see MAM_COLDSTART_FROM_GC).
+     ! of the restart; vertical extent follows MAM_STRAT_GATE (module header,
+     ! .TRUE. on this branch = troposphere only; see MAM_COLDSTART_FROM_GC).
      IF ( mdo_coldstart == 1 ) CALL MAM_COLDSTART_FROM_GC( State_Chm, State_Grid, State_Met )
     ENDIF
 
@@ -453,7 +494,8 @@ CALL load_pbuf( pbuf, lchnk, pcols, &
          physta%dgncur_a,     physta%dgncur_awet,  &
          physta%wetdens,      physta%qaerwat,             &
          hplus_aer_out = hplus_aer_out,           &
-         relhum_in     = physta%relhum             )
+         relhum_in     = physta%relhum,           &
+         lstrat_in     = lstrat                    )   ! FAB: strat gate
     END IF
 ! vmr and vmrcw have been updated in modal_aero_amicphys_intr
 
@@ -752,8 +794,10 @@ END IF
           physta%q(n,L,numptr_amode(m)) = 0.0_r8
        END DO
 
-       ! Stratosphere: MAM aerosol starts empty (UCX owns SO4/NIT there)
-       IF ( State_Met%InStratMeso(I,J,L) ) CYCLE
+       ! Stratosphere: empty when MAM_STRAT_GATE is set (module header).
+       ! .TRUE. on this branch -- UCX owns stratospheric SO4/NIT and the
+       ! gates (#18-#21) keep MAM invisible there, so it starts with nothing.
+       IF ( MAM_STRAT_GATE .AND. State_Met%InStratMeso(I,J,L) ) CYCLE
 
        rAD = 1.0_fp / State_Met%AD(I,J,L)
 
@@ -823,8 +867,15 @@ END IF
 
     Spc => NULL()
 
-    IF ( masterproc ) WRITE(*,*) 'MAM_COLDSTART_FROM_GC: MAM aerosol ' //   &
-         'initialised from GC tracers (troposphere only)'
+    IF ( masterproc ) THEN
+       IF ( MAM_STRAT_GATE ) THEN
+          WRITE(*,*) 'MAM_COLDSTART_FROM_GC: MAM aerosol ' //               &
+               'initialised from GC tracers (troposphere only)'
+       ELSE
+          WRITE(*,*) 'MAM_COLDSTART_FROM_GC: MAM aerosol ' //               &
+               'initialised from GC tracers (all levels, MAM ungated aloft)'
+       ENDIF
+    ENDIF
 
   CONTAINS
 
@@ -961,7 +1012,7 @@ SUBROUTINE MAM_INIT( Input_Opt, State_Chm,  State_Diag, State_Grid, RC )
                                lptr_no3_a_amode,lptr_ca_a_amode,&
                                lptr_cl_a_amode,lptr_co3_a_amode,&
                                lptr_mom_a_amode, ntot_amode,       &
-                               modeptr_accum, modeptr_coarse   !FAB Step 3
+                               modeptr_accum, modeptr_aitken, modeptr_coarse   !FAB Step 3
 
     USE modal_aero_initialize_data, only: MAM_init_basics, MAM_ALLOCATE
     USE mam_opt, only: mam_init_opt
@@ -1106,32 +1157,16 @@ END DO
  ALLOCATE(CLDF_prev(State_Grid%NX, State_Grid%NY, State_Grid%NZ))
  CLDF_prev = 0.0_fp
 
-! FAB (MAM-decouple-std, Step 3): interstitial Cl- tracer per mode, for the
-! KPP SALACL/SALCCL shadowing (MAM_KPP_Shadow_In/Out)
- ALLOCATE(id_MAMCL(ntot_amode))
- id_MAMCL = -1
- DO i = 1, nmamgc
-   IF ( mamgc(i)%iscb .OR. mamgc(i)%isnum ) CYCLE
-   IF ( mamgc(i)%name(4:5) == 'CL' ) id_MAMCL(mamgc(i)%modId) = mamgc(i)%gcind
- END DO
- lshadow_cl = .FALSE.
- IF ( modeptr_accum > 0 .AND. modeptr_coarse > 0 ) THEN
-   lshadow_cl = ( id_MAMCL(modeptr_accum) > 0 .AND. id_MAMCL(modeptr_coarse) > 0 )
- END IF
- IF ( masterproc ) WRITE(*,*) 'MAM_INIT: KPP SALACL/SALCCL shadowed from MAM Cl- : ', lshadow_cl
-
-! FAB (MAM-decouple-std, Step 3b): interstitial NO3- tracer per mode, for the
-! KPP NIT/NITs shadowing (MAM_KPP_Shadow_In/Out, troposphere only)
- ALLOCATE(id_MAMNO3(ntot_amode))
- id_MAMNO3 = -1
- DO i = 1, nmamgc
-   IF ( mamgc(i)%iscb .OR. mamgc(i)%isnum ) CYCLE
-   IF ( mamgc(i)%name(4:6) == 'NO3' ) id_MAMNO3(mamgc(i)%modId) = mamgc(i)%gcind
- END DO
- lshadow_no3 = .FALSE.
- IF ( modeptr_accum > 0 .AND. modeptr_coarse > 0 ) THEN
-   lshadow_no3 = ( id_MAMNO3(modeptr_accum) > 0 .AND. id_MAMNO3(modeptr_coarse) > 0 )
- END IF
+! FAB (MAM-decouple-std, Steps 3/3b): interstitial Cl-/NO3- tracers for the
+! KPP SALACL/SALCCL and NIT/NITs shadowing (MAM_KPP_Shadow_In/Out). The
+! suffix is the MAM mode number (MamModId); check the MAM4 ordering.
+ IF ( modeptr_accum /= 1 .OR. modeptr_aitken /= 2 .OR. modeptr_coarse /= 3 ) &
+   CALL endrun('MAM_INIT: shadowing assumes MAM4 modes 1/2/3 = accum/aitken/coarse')
+ id_MAMCL1  = Ind_('MAMCL1' ) ; id_MAMCL2  = Ind_('MAMCL2' ) ; id_MAMCL3  = Ind_('MAMCL3' )
+ id_MAMNO31 = Ind_('MAMNO31') ; id_MAMNO32 = Ind_('MAMNO32') ; id_MAMNO33 = Ind_('MAMNO33')
+ lshadow_cl  = ( id_MAMCL1  > 0 .AND. id_MAMCL3  > 0 )
+ lshadow_no3 = ( id_MAMNO31 > 0 .AND. id_MAMNO33 > 0 )
+ IF ( masterproc ) WRITE(*,*) 'MAM_INIT: KPP SALACL/SALCCL shadowed from MAM Cl- (trop only) : ', lshadow_cl
  IF ( masterproc ) WRITE(*,*) 'MAM_INIT: KPP NIT/NITs shadowed from MAM NO3- (trop only) : ', lshadow_no3
 
 END SUBROUTINE MAM_INIT
@@ -1172,40 +1207,34 @@ SUBROUTINE MAM_KPP_Shadow_In( I, J, L, State_Chm, State_Met )
     USE gckpp_Parameters, ONLY : ind_NIT,    ind_NITs
     USE State_Chm_Mod,    ONLY : ChmState
     USE State_Met_Mod,    ONLY : MetState
-    USE modal_aero_data,  ONLY : modeptr_accum, modeptr_aitken, modeptr_coarse
 
     INTEGER,        INTENT(IN) :: I, J, L
     TYPE(ChmState), INTENT(IN) :: State_Chm
     TYPE(MetState), INTENT(IN) :: State_Met
 
-    REAL(fp) :: fine
-
-    IF ( lshadow_cl ) THEN
-
-       fine = MAX( State_Chm%Species(id_MAMCL(modeptr_accum))%Conc(I,J,L), 0.0_fp )
-       IF ( modeptr_aitken > 0 ) THEN
-          IF ( id_MAMCL(modeptr_aitken) > 0 ) fine = fine +                  &
-             MAX( State_Chm%Species(id_MAMCL(modeptr_aitken))%Conc(I,J,L), 0.0_fp )
-       ENDIF
-
-       C(ind_SALACL) = REAL( fine, kind=KIND(C) )
-       C(ind_SALCCL) = REAL( MAX( State_Chm%Species(id_MAMCL(modeptr_coarse))%Conc(I,J,L), &
-                                  0.0_fp ), kind=KIND(C) )
+    ! FAB (MAM-decouple-std, strat gate): chloride also troposphere only, same
+    ! boxes as the MOSAIC gate in MAM_DRIV (InStratMeso = .not. InTroposphere,
+    ! calc_met_mod.F90). Above the tropopause MAM is chemically inert and KPP
+    ! keeps its own (STD) SALACL/SALCCL. Same gate as MAM_KPP_Shadow_Out.
+    IF ( lshadow_cl .AND. State_Met%InTroposphere(I,J,L) ) THEN
+       C(ind_SALACL) = REAL( Pos( id_MAMCL1 ) + Pos( id_MAMCL2 ), kind=KIND(C) )
+       C(ind_SALCCL) = REAL( Pos( id_MAMCL3 ),                    kind=KIND(C) )
     ENDIF
 
     ! Step 3b: nitrate, troposphere only (same gate as MAM_KPP_Shadow_Out)
     IF ( lshadow_no3 .AND. State_Met%InTroposphere(I,J,L) ) THEN
-
-       fine = MAX( State_Chm%Species(id_MAMNO3(modeptr_accum))%Conc(I,J,L), 0.0_fp )
-       IF ( modeptr_aitken > 0 ) THEN
-          IF ( id_MAMNO3(modeptr_aitken) > 0 ) fine = fine +                 &
-             MAX( State_Chm%Species(id_MAMNO3(modeptr_aitken))%Conc(I,J,L), 0.0_fp )
-       ENDIF
-
-       C(ind_NIT)  = REAL( fine, kind=KIND(C) )
-       C(ind_NITs) = REAL( MAX( State_Chm%Species(id_MAMNO3(modeptr_coarse))%Conc(I,J,L), &
-                                0.0_fp ), kind=KIND(C) )
+       C(ind_NIT)  = REAL( Pos( id_MAMNO31 ) + Pos( id_MAMNO32 ), kind=KIND(C) )
+       C(ind_NITs) = REAL( Pos( id_MAMNO33 ),                     kind=KIND(C) )
     ENDIF
+
+CONTAINS
+
+    ! Non-negative concentration of GC species id in box (I,J,L); 0 if absent
+    REAL(fp) FUNCTION Pos( id )
+       INTEGER, INTENT(IN) :: id
+       Pos = 0.0_fp
+       IF ( id > 0 ) Pos = MAX( State_Chm%Species(id)%Conc(I,J,L), 0.0_fp )
+    END FUNCTION Pos
 
 END SUBROUTINE MAM_KPP_Shadow_In
 
@@ -1223,6 +1252,7 @@ END SUBROUTINE MAM_KPP_Shadow_In
 !  if there is no pre-existing Cl-, a gain goes to the accumulation mode.
 !  Note: the STD SALACL/SALCCL tracers are overwritten by the copy-back with
 !  the post-KPP shadow values, i.e. they become a copy of MAM Cl-.
+!  FAB (strat gate, 2026-09-18): tropospheric boxes only, like NIT/NITs.
 !
 !  FAB (MAM-decouple-std, Step 3b). Same for NIT/NITs -> MAM NO3-, in
 !  tropospheric boxes only.  The gate must be identical to the one in
@@ -1236,35 +1266,26 @@ SUBROUTINE MAM_KPP_Shadow_Out( I, J, L, State_Chm, State_Met, C_before )
     USE gckpp_Parameters, ONLY : ind_NIT,    ind_NITs
     USE State_Chm_Mod,    ONLY : ChmState
     USE State_Met_Mod,    ONLY : MetState
-    USE modal_aero_data,  ONLY : modeptr_accum, modeptr_aitken, modeptr_coarse
 
     INTEGER,        INTENT(IN)    :: I, J, L
     TYPE(ChmState), INTENT(INOUT) :: State_Chm
     TYPE(MetState), INTENT(IN)    :: State_Met
     REAL(KIND=KIND(C)), INTENT(IN) :: C_before(:)   ! KPP C before Integrate
 
-    INTEGER  :: mlist(2)
-
-    IF ( lshadow_cl ) THEN
-
-       mlist = (/ modeptr_accum, modeptr_aitken /)
-       CALL Shadow_Distribute( I, J, L, State_Chm, id_MAMCL, mlist,          &
+    ! FAB (MAM-decouple-std, strat gate): troposphere only, same gate as
+    ! MAM_KPP_Shadow_In
+    IF ( lshadow_cl .AND. State_Met%InTroposphere(I,J,L) ) THEN
+       CALL Shadow_Distribute( I, J, L, State_Chm, (/ id_MAMCL1, id_MAMCL2 /), &
                                REAL( C(ind_SALACL) - C_before(ind_SALACL), fp ) )
-
-       mlist = (/ modeptr_coarse, -1 /)
-       CALL Shadow_Distribute( I, J, L, State_Chm, id_MAMCL, mlist,          &
+       CALL Shadow_Distribute( I, J, L, State_Chm, (/ id_MAMCL3 /),            &
                                REAL( C(ind_SALCCL) - C_before(ind_SALCCL), fp ) )
     ENDIF
 
     ! Step 3b: nitrate, troposphere only (same gate as MAM_KPP_Shadow_In)
     IF ( lshadow_no3 .AND. State_Met%InTroposphere(I,J,L) ) THEN
-
-       mlist = (/ modeptr_accum, modeptr_aitken /)
-       CALL Shadow_Distribute( I, J, L, State_Chm, id_MAMNO3, mlist,         &
-                               REAL( C(ind_NIT) - C_before(ind_NIT), fp ) )
-
-       mlist = (/ modeptr_coarse, -1 /)
-       CALL Shadow_Distribute( I, J, L, State_Chm, id_MAMNO3, mlist,         &
+       CALL Shadow_Distribute( I, J, L, State_Chm, (/ id_MAMNO31, id_MAMNO32 /), &
+                               REAL( C(ind_NIT)  - C_before(ind_NIT),  fp ) )
+       CALL Shadow_Distribute( I, J, L, State_Chm, (/ id_MAMNO33 /),             &
                                REAL( C(ind_NITs) - C_before(ind_NITs), fp ) )
     ENDIF
 
@@ -1272,42 +1293,38 @@ END SUBROUTINE MAM_KPP_Shadow_Out
 
 !------------------------------------------------------------------------------
 ! FAB (MAM-decouple-std, Step 3): add delta [molec/cm3] to the MAM tracers
-! id_spc(mlist(:)) in proportion to their current (non-negative) amounts;
-! if they are all zero and delta > 0, put it in mlist(1).
+! ids(:) (GC species indices, -1 = absent) in proportion to their current
+! (non-negative) amounts; if they are all zero and delta > 0, put it in ids(1).
 !------------------------------------------------------------------------------
-SUBROUTINE Shadow_Distribute( I, J, L, State_Chm, id_spc, mlist, delta )
+SUBROUTINE Shadow_Distribute( I, J, L, State_Chm, ids, delta )
 
     USE State_Chm_Mod, ONLY : ChmState
 
     INTEGER,        INTENT(IN)    :: I, J, L
     TYPE(ChmState), INTENT(INOUT) :: State_Chm
-    INTEGER,        INTENT(IN)    :: id_spc(:), mlist(:)
+    INTEGER,        INTENT(IN)    :: ids(:)
     REAL(fp),       INTENT(IN)    :: delta
 
-    INTEGER  :: k, m, id
+    INTEGER  :: k, id
     REAL(fp) :: tot, x
 
     IF ( delta == 0.0_fp ) RETURN
 
     tot = 0.0_fp
-    DO k = 1, SIZE( mlist )
-       m = mlist(k)
-       IF ( m <= 0 ) CYCLE
-       IF ( id_spc(m) <= 0 ) CYCLE
-       tot = tot + MAX( State_Chm%Species(id_spc(m))%Conc(I,J,L), 0.0_fp )
+    DO k = 1, SIZE( ids )
+       IF ( ids(k) <= 0 ) CYCLE
+       tot = tot + MAX( State_Chm%Species(ids(k))%Conc(I,J,L), 0.0_fp )
     END DO
 
     IF ( tot > 0.0_fp ) THEN
-       DO k = 1, SIZE( mlist )
-          m = mlist(k)
-          IF ( m <= 0 ) CYCLE
-          id = id_spc(m)
+       DO k = 1, SIZE( ids )
+          id = ids(k)
           IF ( id <= 0 ) CYCLE
           x = MAX( State_Chm%Species(id)%Conc(I,J,L), 0.0_fp )
           State_Chm%Species(id)%Conc(I,J,L) = MAX( x + delta * x / tot, 0.0_fp )
        END DO
     ELSE IF ( delta > 0.0_fp ) THEN
-       id = id_spc(mlist(1))
+       id = ids(1)
        State_Chm%Species(id)%Conc(I,J,L) = State_Chm%Species(id)%Conc(I,J,L) + delta
     ENDIF
 
@@ -1886,11 +1903,12 @@ END SUBROUTINE Set_MAM_Diagnostic
 
   END SUBROUTINE MAM_APPLY_RAINOUT_EFF
 SUBROUTINE MAM_OPT_to_RRTMG( Input_Opt,  State_Chm,  State_Diag, &
-                                State_Grid)
+                                State_Grid, State_Met)
 
     USE State_Chm_Mod,  ONLY : ChmState
     USE State_Diag_Mod, ONLY : DgnState
     USE State_Grid_Mod, ONLY : GrdState
+    USE State_Met_Mod,  ONLY : MetState
     USE Input_Opt_Mod,  ONLY : OptInput
     USE mam_opt,        ONLY : mamoptdiag
     USE radconstants,   ONLY : nswbands, nlwbands
@@ -1904,6 +1922,7 @@ SUBROUTINE MAM_OPT_to_RRTMG( Input_Opt,  State_Chm,  State_Diag, &
     TYPE(GrdState), INTENT(IN)    :: State_Grid
     TYPE(ChmState), INTENT(INOUT) :: State_Chm
     TYPE(DgnState), INTENT(INOUT) :: State_Diag
+    TYPE(MetState), INTENT(IN)    :: State_Met   ! FAB (#21): tropopause gate
 
     ! =========================================================================
     ! FAB : Here is the tricky part : MAM Species index mapping in RRTMG RTODAER,SSA,ASY  
@@ -1931,8 +1950,13 @@ SUBROUTINE MAM_OPT_to_RRTMG( Input_Opt,  State_Chm,  State_Diag, &
     REAL(f8), POINTER :: RTSSAER   (:,:,:,:,:)
     REAL(f8), POINTER :: RTASYMAER (:,:,:,:,:)
 
-    INTEGER  :: NBNDS, IB, IBX, IB_SW  
+    INTEGER  :: NBNDS, IB, IBX, IB_SW
     INTEGER  :: I, J, L, n, m, nmodes
+
+    ! FAB (register #21): RT slots owned by UCX, not MAM. NRT = N+2 for N>1
+    ! (aerosol_mod.F90:1551) and the strat types are N = NRHAER+1, NRHAER+2
+    ! with NRHAER = 5, so SLA -> 8 and PSC -> 9.
+    INTEGER, PARAMETER :: iRT_SLA = 8, iRT_PSC = 9
 
     ! Accumulators for bulk optical properties across modes (tau, tau*ssa, tau*ssa*g)
     ! Using explicit variables rather than filling RTODAER directly so we can
@@ -1974,10 +1998,26 @@ SUBROUTINE MAM_OPT_to_RRTMG( Input_Opt,  State_Chm,  State_Diag, &
           DO L = 1, State_Grid%NZ
           DO J = 1, State_Grid%NY
           DO I = 1, State_Grid%NX
-             ! zero out all aerosol species in RT tables 
-             RTODAER  (I,J,L,IBX,1:State_Chm%Phot%NASPECRAD) =  0.0_f8 
-             RTSSAER  (I,J,L,IBX,1:State_Chm%Phot%NASPECRAD) =  0.0_f8
-             RTASYMAER(I,J,L,IBX,1:State_Chm%Phot%NASPECRAD) =  0.0_f8
+             ! FAB (MAM-decouple-std, register #21): zero every RT slot MAM
+             ! owns, but NOT 8 (SLA) and 9 (PSC). Those are the UCX
+             ! stratospheric slots, filled by the RDAER loop that runs just
+             ! before this call (aerosol_mod.F90, #else branch of the
+             ! MODAL_AERO_4MODE_MOM guard). Zeroing the whole range here is
+             ! what used to erase them, leaving RRTMG with no stratospheric
+             ! aerosol at all while MAM's ungated stratosphere stood in for it
+             ! (devnotes 11.14.2).
+             RTODAER  (I,J,L,IBX,1:iRT_SLA-1)  =  0.0_f8
+             RTSSAER  (I,J,L,IBX,1:iRT_SLA-1)  =  0.0_f8
+             RTASYMAER(I,J,L,IBX,1:iRT_SLA-1)  =  0.0_f8
+             RTODAER  (I,J,L,IBX,iRT_PSC+1:State_Chm%Phot%NASPECRAD) = 0.0_f8
+             RTSSAER  (I,J,L,IBX,iRT_PSC+1:State_Chm%Phot%NASPECRAD) = 0.0_f8
+             RTASYMAER(I,J,L,IBX,iRT_PSC+1:State_Chm%Phot%NASPECRAD) = 0.0_f8
+
+             ! FAB (register #21): above the tropopause MAM contributes no
+             ! optics -- UCX owns slots 8/9 there. Slots are already zeroed
+             ! just above, so skipping the fill leaves MAM optically invisible
+             ! aloft, consistent with #19 (het surfaces) and #20 (Fast-JX).
+             IF ( State_Met%InStratMeso(I,J,L) ) CYCLE
 
              ! Linear column index used by mamoptdiag (pcols ordering)
              n = J + ( I - 1 ) * State_Grid%NY
@@ -2360,6 +2400,7 @@ SUBROUTINE MAM_to_HETRATES( Input_Opt, State_Chm, State_Grid, State_Met )
     REAL(fp) :: aclA, aclAR, watFine, watCoarse
     INTEGER  :: I, J, L, m, k, t, c, iDU, nmodes
     LOGICAL  :: isFine
+    LOGICAL  :: lstratBox        ! FAB (register #19): box is above the tropopause
 
     nmodes = SIZE( State_Chm%GCMAM )
 
@@ -2384,7 +2425,7 @@ SUBROUTINE MAM_to_HETRATES( Input_Opt, State_Chm, State_Grid, State_Met )
     !$OMP DEFAULT( SHARED )                                                  &
     !$OMP PRIVATE( I, J, L, m, k, c, iDU, isFine, vol, kvol, mass, area )    &
     !$OMP PRIVATE( areaR, wat, vtot, kvtot, S_m, reff, wm, a, w, dmin, d )   &
-    !$OMP PRIVATE( aclA, aclAR, watFine, watCoarse )                         &
+    !$OMP PRIVATE( aclA, aclAR, watFine, watCoarse, lstratBox )              &
     !$OMP COLLAPSE( 3 )                                                      &
     !$OMP SCHEDULE( DYNAMIC )
     DO L = 1, State_Grid%NZ
@@ -2398,6 +2439,29 @@ SUBROUTINE MAM_to_HETRATES( Input_Opt, State_Chm, State_Grid, State_Met )
        aclAR     = 0.0_fp
        watFine   = 0.0_fp
        watCoarse = 0.0_fp
+
+       ! FAB (MAM-decouple-std, register #19): above the tropopause the
+       ! sulfate-nitrate-ammonium system belongs to UCX -- stratospheric
+       ! aerosol enters KPP through slot 13 (SLA) and slot 14 (PSC) only.
+       ! STD enforces this in RDAER, which sets SO4_NH4_NIT/SO4/NH4/NIT/HMS
+       ! to zero in stratospheric boxes and fills SLA/SPA instead
+       ! (aerosol_mod.F90:449-459), leaving the dust, BC, OC and sea-salt
+       ! slots populated. Mirror it exactly by dropping the SNA category
+       ! here, so MAM SNA is no longer added *on top of* the UCX SLA term in
+       ! N2O5uptkByH2O and in the stratBox branches of HOBr/HOCl/ClNO3 + HCl
+       ! /HBr, and so the unguarded SUL-slot uses (HO2uptk1stOrd,
+       ! BrNO3uptkByH2O, IONO2uptkByH2O, NO2uptk1stOrdAndCloud) go back to
+       ! zero aloft as in STD (devnotes 11.14.2).
+       !   Gate: InStratMeso = .not. InTroposphere (calc_met_mod.F90:573-578),
+       !   the same boxes as the MOSAIC gate in MAM_DRIV (register #18).
+       !   Dust/BC/OC/sea salt are deliberately NOT masked -- STD does not
+       !   mask them either, and any genuine UTLS dust or BC near the
+       !   tropopause is real het-chem surface.
+       !   pH: IsorropHplus/IsorropAeropH are still set at all levels below.
+       !   With area(iSUL) = 0 aloft the acid-dependent rates are zero
+       !   regardless, so this is moot here; the pH-when-dry question is
+       !   register #11.
+       lstratBox = State_Met%InStratMeso(I,J,L)
 
        DO m = 1, nmodes
 
@@ -2466,6 +2530,11 @@ SUBROUTINE MAM_to_HETRATES( Input_Opt, State_Chm, State_Grid, State_Met )
 
           DO c = 1, NCAT
              IF ( vol(c) <= 0.0_fp ) CYCLE
+             ! FAB (register #19): SNA belongs to UCX above the tropopause.
+             ! Skipping here removes it from the SUL slot AND from the
+             ! fine/coarse inorganic accumulators (aClArea, IsorropAeroH2O),
+             ! which is what RDAER's SO4_NH4_NIT = 0 does in STD.
+             IF ( lstratBox .AND. c == cSNA ) CYCLE
              a = S_m * vol(c) / vtot
              IF ( kvtot > 0.0_fp ) THEN
                 w = wm * kvol(c) / kvtot
@@ -2558,7 +2627,7 @@ SUBROUTINE MAM_to_HETRATES( Input_Opt, State_Chm, State_Grid, State_Met )
 END SUBROUTINE MAM_to_HETRATES
 
 !------------------------------------------------------------------------------
-SUBROUTINE MAM_OPT_to_PHOTOL( Input_Opt, State_Chm, State_Grid )
+SUBROUTINE MAM_OPT_to_PHOTOL( Input_Opt, State_Chm, State_Grid, State_Met )
 !
 ! Replace ODAER and ODMDUST at 1000 nm (Fast-JX photolysis reference
 ! wavelength) with MAM optical depths from mamoptdiag.
@@ -2576,6 +2645,16 @@ SUBROUTINE MAM_OPT_to_PHOTOL( Input_Opt, State_Chm, State_Grid )
 ! reasonable bulk aerosol proxy.  Strat aerosol slots (NRHAER+1:NAER) are
 ! left untouched; they are filled afterwards by the strat aerosol loop.
 !
+! FAB (MAM-decouple-std, register #20): the MAM optical depth is accumulated
+! in TROPOSPHERIC boxes only.  Above the tropopause the strat aerosol loop
+! that runs immediately after this call (aerosol_mod.F90, "Account for
+! stratospheric aerosols") fills the UCX SLA/PSC slots; adding MAM's own OD
+! at those levels counted stratospheric aerosol twice in Fast-JX
+! (devnotes 11.14.2).  Slot 1 was already zeroed for the whole column above,
+! so skipping the accumulation leaves it at zero aloft — MAM is optically
+! invisible there and UCX is the sole owner, mirroring RDAER/#19 for the
+! het-chem surfaces.
+!
 ! Precision note: the legacy code looks up Mie coefficients at exactly 1000 nm
 ! (one of the 11 discrete wavelengths in the GC aerosol optics dat files).
 ! MAM tauxar is a band-average over SW band 8 (8050-12850 cm-1, 778-1242 nm),
@@ -2586,12 +2665,14 @@ SUBROUTINE MAM_OPT_to_PHOTOL( Input_Opt, State_Chm, State_Grid )
     USE Input_Opt_Mod,  ONLY : OptInput
     USE State_Chm_Mod,  ONLY : ChmState
     USE State_Grid_Mod, ONLY : GrdState
+    USE State_Met_Mod,  ONLY : MetState
     USE mam_opt,        ONLY : mamoptdiag
     USE precision_mod,  ONLY : f8
 
     TYPE(OptInput), INTENT(IN)    :: Input_Opt
     TYPE(ChmState), INTENT(INOUT) :: State_Chm
     TYPE(GrdState), INTENT(IN)    :: State_Grid
+    TYPE(MetState), INTENT(IN)    :: State_Met   ! FAB (#20): tropopause gate
 
     ! Band 8 of the 14 SW bands in the MAM optics data files (8050-12850 cm-1,
     ! 778-1242 nm).  Fixed by the optics file format; independent of whether
@@ -2621,6 +2702,9 @@ SUBROUTINE MAM_OPT_to_PHOTOL( Input_Opt, State_Chm, State_Grid )
        DO J = 1, State_Grid%NY
           n = J + ( I - 1 ) * State_Grid%NY
           DO L = 1, State_Grid%NZ
+             ! FAB (register #20): troposphere only -- UCX owns the
+             ! stratospheric slots, filled by the strat loop after this call
+             IF ( State_Met%InStratMeso(I,J,L) ) CYCLE
              ODAER(I,J,L,IWV1000,1) = ODAER(I,J,L,IWV1000,1) &
                                      + mamoptdiag(m)%tauxar(n,L,IB_1000)
           END DO

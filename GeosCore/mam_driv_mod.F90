@@ -1016,6 +1016,7 @@ SUBROUTINE MAM_INIT( Input_Opt, State_Chm,  State_Diag, State_Grid, RC )
 
     USE modal_aero_initialize_data, only: MAM_init_basics, MAM_ALLOCATE
     USE mam_opt, only: mam_init_opt
+    USE Mam_Gc_Access_Mod, ONLY : MAM_Init_Access   ! FAB Step 5
     ! !INPUT PARAMETERS:
 !
     TYPE(OptInput), INTENT(IN)    :: Input_Opt   ! Input Options object
@@ -1168,6 +1169,11 @@ END DO
  lshadow_no3 = ( id_MAMNO31 > 0 .AND. id_MAMNO33 > 0 )
  IF ( masterproc ) WRITE(*,*) 'MAM_INIT: KPP SALACL/SALCCL shadowed from MAM Cl- (trop only) : ', lshadow_cl
  IF ( masterproc ) WRITE(*,*) 'MAM_INIT: KPP NIT/NITs shadowed from MAM NO3- (trop only) : ', lshadow_no3
+
+! FAB (MAM-decouple-std, Step 5): cache the MAM species indices used by code
+! outside the KPP integrator (mam_gc_access_mod). The accessors also self-
+! initialise on first use, so this is only to keep the cost out of the run loop.
+ CALL MAM_Init_Access()
 
 END SUBROUTINE MAM_INIT
 

@@ -51,6 +51,7 @@ add_library(GeosCore
   linear_chem_mod.F90
   linoz_mod.F90
   $<$<OR:$<BOOL:${MODAL_AERO_4MODE}>,$<BOOL:${MODAL_AERO_4MODE_MOM}>>:mam_driv_mod.F90>
+  mam_gc_access_mod.F90
   mapping_mod.F90
   mercury_mod.F90
   mixing_mod.F90

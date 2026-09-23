@@ -615,6 +615,12 @@ CONTAINS
     USE State_Diag_Mod, ONLY : DgnState
     USE State_Met_Mod,  ONLY : MetState
     USE Error_Mod,      ONLY : SAFE_DIV
+#ifdef MOSAIC_SPECIES
+    ! FAB (MAM-decouple-std, Step 5): read MAM aerosol directly rather than the
+    ! STD tracers. See the note at the FAC computation below.
+    USE Mam_Gc_Access_Mod, ONLY : MAM_NO3_Fine,     MAM_NO3_Coarse,            &
+                                  MAM_SeaSalt_Fine, MAM_SeaSalt_Coarse
+#endif
 !
 ! !INPUT PARAMETERS:
 !
@@ -687,6 +693,33 @@ CONTAINS
     IF ( Input_Opt%hvAerNIT .and.               &
          State_Met%InTroposphere(I,J,L) ) THEN
 
+#ifdef MOSAIC_SPECIES
+       ! FAB (MAM-decouple-std, Step 5): take the nitrate and the sea salt from
+       ! MAM, not from the standard tracers.
+       !
+       ! This runs in the photolysis set-up, OUTSIDE the KPP integrator, so
+       ! there is no reason to go through the Step 3b shadows -- and for the sea
+       ! salt it was outright wrong. Before this change FAC divided the STD
+       ! SALA tracer (never shadowed: a parallel legacy sea-salt population with
+       ! its own emissions and removal) by C_NIT, which since Step 3b is a
+       ! shadow copy of MAM fine-mode nitrate. Numerator and denominator came
+       ! from two different aerosol schemes, so the quotient was not the mass
+       ! fraction of anything. It was wrong in the STD-like case too: with an
+       ! unshadowed NIT the denominator is a decaying restart relic ~ 0, so
+       ! FAC collapsed to exactly 1 and every box got the maximum enhancement.
+       !
+       ! FAC is meant to answer "what fraction of the fine nitrate sits on sea
+       ! salt?", so both terms must describe the same particles. Fine =
+       ! accumulation + Aitken, i.e. exactly what feeds the NIT shadow.
+       ! MAM_SeaSalt_* returns Na+ + Cl-; see mam_gc_access_mod for why that is
+       ! the like-for-like analogue of STD SALA (which has MW_g = 31.4 and so
+       ! already counts sea salt roughly per ion). Both terms are in the same
+       ! State_Chm units, so the ratio is unit-safe.
+       C_NIT      = MAM_NO3_Fine      ( State_Chm, I, J, L )
+       C_NITs     = MAM_NO3_Coarse    ( State_Chm, I, J, L )
+       C_SALA     = MAM_SeaSalt_Fine  ( State_Chm, I, J, L )
+       C_SALC     = MAM_SeaSalt_Coarse( State_Chm, I, J, L )
+#else
        ! Get NIT and NITs concentrations [molec cm-3]
        C_NIT      = State_Chm%Species(id_NIT)%Conc(I,J,L)
        C_NITs     = State_Chm%Species(id_NITs)%Conc(I,J,L)
@@ -695,6 +728,7 @@ CONTAINS
        ! Get sea-salt concentrations [molec cm-3]
        C_SALA     = State_Chm%Species(id_SALA)%Conc(I,J,L)
        C_SALC     = State_Chm%Species(id_SALC)%Conc(I,J,L)
+#endif
 
        ! Scaling factor for J(NIT)
        FAC        = SAFE_DIV( C_SALA, C_SALA + C_NIT, 1e+0_fp )

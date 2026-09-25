@@ -60,6 +60,9 @@ CONTAINS
     USE rateLawUtilFuncs
     USE State_Chm_Mod,    ONLY : ChmState, Ind_
     USE State_Met_Mod,    ONLY : MetState
+#ifdef MOSAIC_SPECIES
+    USE Mam_Gc_Access_Mod, ONLY : MAM_Cl_Fine, MAM_NO3_Fine, MAM_SO4_Fine
+#endif
 
   ! Species ID flags
 !
@@ -218,6 +221,26 @@ CONTAINS
 
     ! Halide (Br- and Cl-) concentrations
     CALL Halide_Conc( I, J, L, H  )
+
+#ifdef MOSAIC_SPECIES
+    ! FAB (MAM-decouple-std, devnotes 11.24.6): fraction of chloride among the
+    ! fine-mode anions, all three from MAM. Halide_Conc computes it from C()
+    ! as SALACL/(SALACL+NIT+SO4): SALACL and NIT are troposphere-only shadows
+    ! of MAM Cl-/NO3-, but SO4 is a phantom copy of all produced sulfate, so
+    ! the mix was inconsistent. This runs before Integrate (outside the
+    ! integrator), so per 11.22 it reads MAM directly. Ratio -> unit-safe.
+    BLOCK
+      REAL(dp) :: cl_f, no3_f, so4_f
+      cl_f  = MAM_Cl_Fine ( State_Chm, I, J, L )
+      no3_f = MAM_NO3_Fine( State_Chm, I, J, L )
+      so4_f = MAM_SO4_Fine( State_Chm, I, J, L )
+      IF ( ( cl_f + no3_f + so4_f ) > 0.0_dp ) THEN
+         H%frac_SALACL = cl_f / ( cl_f + no3_f + so4_f )
+      ELSE
+         H%frac_SALACL = 0.0_dp
+      ENDIF
+    END BLOCK
+#endif
 
     !========================================================================
     ! Copy quantities for UCX into gckpp_Global variables

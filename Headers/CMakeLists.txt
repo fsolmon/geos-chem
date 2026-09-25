@@ -29,6 +29,7 @@ add_library(Headers
   state_grid_mod.F90
   state_met_mod.F90
   mam_container_mod.F90
+  mam_gc_access_mod.F90   # FAB: MAM accessors, leaf (State_Chm_Mod only)
   )
 
 # Define dependencies for libHeaders.a

@@ -452,6 +452,9 @@ CONTAINS
     USE State_Chm_Mod,         ONLY : ChmState, IND_
     USE State_Met_Mod,         ONLY : MetState
     USE Time_Mod,              ONLY : Get_Ts_Chem
+#ifdef MOSAIC_SPECIES
+    USE Mam_Gc_Access_Mod,     ONLY : MAM_SO4_Fine, MAM_SeaSaltMW_Coarse
+#endif
 !
 ! !INPUT PARAMETERS:
 !
@@ -675,8 +678,19 @@ CONTAINS
     MW_SALC = State_Chm%SpcData(id_SALC)%Info%MW_g
 
     ! Convert sulfate aerosol concentrations from [v/v] to [ug/m3]
+#ifdef MOSAIC_SPECIES
+    ! FAB (MAM-decouple-std, devnotes 11.24.6): pre-existing sulfate from MAM
+    ! fine (accumulation + Aitken, interstitial) instead of STD SO4, which
+    ! under MAM is a phantom copy of all produced sulfate (KPP writes it AND
+    ! the PH2SO4/PSO4AQ counters MAM takes its sulfate from). Runs outside the
+    ! integrator (from Set_Sulfur_Chem_Rates), so per 11.22 reads MAM directly.
+    ! Same units as C() here (molec/cm3), so the conversion is unchanged.
+    SO4 = ( MAM_SO4_Fine( State_Chm, I, J, L ) * CVF * AD(I,J,L) * 1.0e+9_dp ) &
+          / ( ( AIRMW / MW_SO4 ) * AIRVOL(I,J,L) )
+#else
     SO4 = ( C(ind_SO4) * CVF * AD(I,J,L) * 1.0e+9_dp ) /                     &
           ( ( AIRMW / MW_SO4 ) * AIRVOL(I,J,L) )
+#endif
 
     ! Convert in cloud sulfate production rate from [v/v/timestep] to
     ! [ug/m3/timestep]
@@ -686,8 +700,16 @@ CONTAINS
     ! Convert coarse-mode aerosol concentrations from [v/v] to [#/cm3]
     ! based on equation in Hofmann, Science, 1990.
     ! First convert from [v/v] to [kg/m3 air]
+#ifdef MOSAIC_SPECIES
+    ! FAB (11.24.6): coarse sea-salt MASS from MAM (Na+ + Cl-, each x its MW)
+    ! instead of the never-shadowed STD SALC. The Hofmann size parameters
+    ! below (SIG_S, RG_S, SS_DEN) are kept as in STD.
+    CNss = MAM_SeaSaltMW_Coarse( State_Chm, I, J, L ) * CVF * AD(I,J,L)     &
+         / ( AIRMW * AIRVOL(I,J,L) )
+#else
     CNss = State_Chm%Species(id_SALC)%Conc(I,J,L)*CVF * AD(I,J,L)            &
          / ( ( AIRMW / MW_SALC ) * AIRVOL(I,J,L) )
+#endif
 
     ! Now convert from [kg/m3 air] to [#/cm3 air]
     ! Sea-salt
@@ -903,6 +925,13 @@ CONTAINS
     USE State_Grid_Mod,  ONLY : GrdState
     USE State_Met_Mod,   ONLY : MetState
     USE Time_Mod,        ONLY : Get_Ts_Chem
+#ifdef MOSAIC_SPECIES
+    USE Mam_Gc_Access_Mod, ONLY : MAM_SO4_Fine, MAM_SO4_Coarse,             &
+                                  MAM_NH4_Fine, MAM_NH4_Coarse,             &
+                                  MAM_NO3_Fine, MAM_NO3_Coarse,             &
+                                  MAM_Na_Fine,  MAM_Na_Coarse,              &
+                                  MAM_Cl_Fine,  MAM_Cl_Coarse
+#endif
 !
 ! !INPUT PARAMETERS:
 !
@@ -1182,8 +1211,31 @@ CONTAINS
        ! [moles/liter]
        ! Use a cloud scavenging ratio of 0.7
 
+#ifdef MOSAIC_SPECIES
+       ! FAB (MAM-decouple-std, devnotes 11.24.5): all cloud-pH ions from MAM.
+       !
+       ! Under MAM the STD aerosol tracers read here are not a consistent set:
+       ! STD NH4 has no source (Do_ATE is compiled out), NIT/NITs have been a
+       ! shadow of MAM nitrate since Step 3b, and STD SO4 is a phantom copy
+       ! (KPP writes every oxidised SO2 into SO4 AND into the PH2SO4/PSO4AQ
+       ! counters that MAM takes its sulfate from; nothing removes the STD
+       ! copy but its own deposition). The cloud water therefore received
+       ! MAM's nitrate as an acid anion WITHOUT the MAM ammonium that
+       ! neutralises it -> spuriously low pH -> the S(IV)+O3 path shut down ->
+       ! winter sulfate in polluted regions halved and SO2 +50 %.
+       ! SET_SO2 runs OUTSIDE the KPP integrator, so
+       ! per the 11.22 rule it reads MAM directly. STD's scavenging convention
+       ! is kept: 0.7 for fine (accumulation + Aitken), 1.0 for coarse.
+       ! MAM species carry the ion's own MW, so number densities are ion counts.
+       ! Interstitial only: MAMCB* is not added (no cloud-borne NH4 tracer
+       ! exists, so adding CB SO4/NO3 would recreate an anion-only imbalance).
+       SO4nss = 1.e+3 * ( MAM_SO4_Fine  ( State_Chm, I, J, L ) * 0.7e+0_fp  &
+              +           MAM_SO4_Coarse( State_Chm, I, J, L ) )           &
+              / ( LWC * AVO ) ! mcl/cm3 -> mol/L
+#else
        SO4nss = 1.e+3 * ( Spc(id_SO4)%Conc(I,J,L) * 0.7e+0_fp &
               + Spc(id_SO4s)%Conc(I,J,L) ) / ( LWC * AVO ) ! mcl/cm3 -> mol/L
+#endif
 
        ! Get HMS cloud concentration and convert from [v/v] to
        ! [moles/liter] (jmm, 06/13/2018)
@@ -1196,13 +1248,27 @@ CONTAINS
 
        ! Get total ammonia (NH3 + NH4+) concentration [v/v]
        ! Use a cloud scavenging ratio of 0.7 for NH4+
+#ifdef MOSAIC_SPECIES
+       ! FAB: MAM ammonium (fine 0.7, coarse 1.0) -- the base that was missing
+       TNH3 = ( MAM_NH4_Fine  ( State_Chm, I, J, L ) * 0.7e+0_fp            &
+              + MAM_NH4_Coarse( State_Chm, I, J, L )                        &
+              + Spc(id_NH3)%Conc(I,J,L) ) * CNVFAC
+#else
        TNH3 = ( ( Spc(id_NH4)%Conc(I,J,L) * 0.7e+0_fp ) &
               + Spc(id_NH3)%Conc(I,J,L) ) * CNVFAC
+#endif
 
        ! Get total chloride (SALACL + HCL) concentration [v/v]
        ! Use a cloud scavenging ratio of 0.7
+#ifdef MOSAIC_SPECIES
+       ! FAB: MAM chloride (the SALACL/SALCCL shadows are troposphere-only
+       ! copies of the same thing; read the source directly)
+       CL = ( MAM_Cl_Fine  ( State_Chm, I, J, L ) * 0.7e+0_fp )             &
+            + MAM_Cl_Coarse( State_Chm, I, J, L )
+#else
        CL = ( Spc(id_SALACL)%Conc(I,J,L) * 0.7e+0_fp ) &
             + Spc(id_SALCCL)%Conc(I,J,L)
+#endif
        CL = ( CL + Spc(id_HCL)%Conc(I,J,L) ) * CNVFAC
 
        ! Get total formic acid concentration [v/v]
@@ -1220,10 +1286,20 @@ CONTAINS
        ! NVC is calculated to balance initial Cl- + alkalinity in
        ! seas salt. Note that we should not consider SO4ss here.
        ! Use a cloud scavenging ratio of 0.7 for fine aerosols
+#ifdef MOSAIC_SPECIES
+       ! FAB: MAM Na+ directly (MAMSSLT is Na+ only, MW 22.99), so no
+       ! SALA->Na conversion factor. Total Na+ balances MAM Cl- plus any
+       ! primary sea-salt SO4 counted in SO4nss above, so the set stays
+       ! charge-consistent whatever the emitted SO4 fraction.
+       TNA      = 1.e3_fp * ( MAM_Na_Fine  ( State_Chm, I, J, L )*0.7e+0_fp  &
+                            + MAM_Na_Coarse( State_Chm, I, J, L ) )         &
+                / ( LWC * AVO ) ! mcl/cm3 -> mol/L
+#else
        TNA      = 1.e3_fp*( Spc(id_SALA)%Conc(I,J,L)*0.7e+0_fp &
             + Spc(id_SALC)%Conc(I,J,L) ) * &
             ( 31.6e+0_fp * 0.359e+0_fp / 23.e+0_fp ) / &
             ( LWC * AVO ) ! mcl/cm3 -> mol/L
+#endif
 
        ! Get total dust cation concentration [mol/L]
        ! Use a cloud scavenging ratio of 1 for dust
@@ -1254,9 +1330,16 @@ CONTAINS
 
        ! Get total nitrate (HNO3 + NIT) concentrations [v/v]
        ! Use a cloud scavenging ratio of 0.7 for NIT
+#ifdef MOSAIC_SPECIES
+       ! FAB: MAM nitrate directly (NIT/NITs are its troposphere-only shadow)
+       TNO3 = ( Spc(id_HNO3)%Conc(I,J,L) +                                  &
+              ( MAM_NO3_Fine  ( State_Chm, I, J, L ) * 0.7e+0_fp ) +        &
+                MAM_NO3_Coarse( State_Chm, I, J, L ) ) * CNVFAC
+#else
        TNO3 = ( Spc(id_HNO3)%Conc(I,J,L) +             &
               ( Spc(id_NIT)%Conc(I,J,L)  * 0.7e+0_fp ) + &
               Spc(id_NITs)%Conc(I,J,L) ) * CNVFAC
+#endif
        GNO3 = Spc(id_HNO3)%Conc(I,J,L) * CNVFAC ! For Fahey & Pandis decision algorithm
 
        ! Calculate cloud pH

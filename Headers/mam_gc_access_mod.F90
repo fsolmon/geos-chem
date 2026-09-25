@@ -33,6 +33,10 @@
 !  from pulling mam_driv_mod (physics_buffer, physics_types, constituents) into
 !  light modules such as photolysis_mod.
 !
+!  Lives in Headers/ (moved from GeosCore/ for the SET_SO2 cloud-pH fix,
+!  devnotes 11.24.5) so that the KPP library, which cannot depend on GeosCore,
+!  can use it too.
+!
 !  UNITS: whatever State_Chm%Species(:)%Conc currently holds -- these routines
 !  only sum existing species, they never convert. Ratios of two accessors are
 !  therefore always unit-safe, which is how they are meant to be used.
@@ -62,6 +66,11 @@ MODULE Mam_Gc_Access_Mod
   PUBLIC :: MAM_Init_Access
   PUBLIC :: MAM_NO3_Fine,     MAM_NO3_Coarse
   PUBLIC :: MAM_SeaSalt_Fine, MAM_SeaSalt_Coarse
+  PUBLIC :: MAM_SO4_Fine,     MAM_SO4_Coarse
+  PUBLIC :: MAM_NH4_Fine,     MAM_NH4_Coarse
+  PUBLIC :: MAM_Na_Fine,      MAM_Na_Coarse
+  PUBLIC :: MAM_Cl_Fine,      MAM_Cl_Coarse
+  PUBLIC :: MAM_SeaSaltMW_Coarse
   PUBLIC :: MAM_Access_Ready
 !
 ! !PRIVATE DATA:
@@ -71,6 +80,9 @@ MODULE Mam_Gc_Access_Mod
   INTEGER, SAVE :: id_SSLT(3) = -1   ! MAMSSLT1/2/3  sea salt (Na+ only in the
                                      !               MOSAIC build)
   INTEGER, SAVE :: id_CL  (3) = -1   ! MAMCL1/2/3    chloride
+  INTEGER, SAVE :: id_SO4 (3) = -1   ! MAMSO41/2/3   sulfate (incl. primary
+                                     !               sea-salt SO4 when emitted)
+  INTEGER, SAVE :: id_NH4 (3) = -1   ! MAMNH41/2/3   ammonium
   LOGICAL, SAVE :: isReady    = .FALSE.
 
 CONTAINS
@@ -89,6 +101,10 @@ CONTAINS
     id_SSLT(3) = Ind_('MAMSSLT3')
     id_CL  (1) = Ind_('MAMCL1'  ) ; id_CL  (2) = Ind_('MAMCL2'  )
     id_CL  (3) = Ind_('MAMCL3'  )
+    id_SO4 (1) = Ind_('MAMSO41' ) ; id_SO4 (2) = Ind_('MAMSO42' )
+    id_SO4 (3) = Ind_('MAMSO43' )
+    id_NH4 (1) = Ind_('MAMNH41' ) ; id_NH4 (2) = Ind_('MAMNH42' )
+    id_NH4 (3) = Ind_('MAMNH43' )
 
     isReady = .TRUE.
 
@@ -173,5 +189,97 @@ CONTAINS
     c = SumPos( State_Chm, id_SSLT(3:3), I, J, L ) +                          &
         SumPos( State_Chm, id_CL  (3:3), I, J, L )
   END FUNCTION MAM_SeaSalt_Coarse
+
+!------------------------------------------------------------------------------
+! Single-ion accessors (fine = accumulation + Aitken, coarse = mode 3).
+!
+! Added for the cloud-pH inputs of SET_SO2 (devnotes 11.24.5), which need each
+! ion on its own rather than lumped. The MAM species carry the molecular weight
+! of the ion itself (Na+ 22.99, NH4+ 18.04, SO4= 96, NO3- 62, Cl- 35.45), so in
+! number-density units these return ion counts directly.
+!------------------------------------------------------------------------------
+  FUNCTION MAM_SO4_Fine( State_Chm, I, J, L ) RESULT( c )
+    TYPE(ChmState), INTENT(IN) :: State_Chm
+    INTEGER,        INTENT(IN) :: I, J, L
+    REAL(fp)                   :: c
+    IF ( .NOT. isReady ) CALL MAM_Init_Access()
+    c = SumPos( State_Chm, id_SO4(1:2), I, J, L )
+  END FUNCTION MAM_SO4_Fine
+
+  FUNCTION MAM_SO4_Coarse( State_Chm, I, J, L ) RESULT( c )
+    TYPE(ChmState), INTENT(IN) :: State_Chm
+    INTEGER,        INTENT(IN) :: I, J, L
+    REAL(fp)                   :: c
+    IF ( .NOT. isReady ) CALL MAM_Init_Access()
+    c = SumPos( State_Chm, id_SO4(3:3), I, J, L )
+  END FUNCTION MAM_SO4_Coarse
+
+  FUNCTION MAM_NH4_Fine( State_Chm, I, J, L ) RESULT( c )
+    TYPE(ChmState), INTENT(IN) :: State_Chm
+    INTEGER,        INTENT(IN) :: I, J, L
+    REAL(fp)                   :: c
+    IF ( .NOT. isReady ) CALL MAM_Init_Access()
+    c = SumPos( State_Chm, id_NH4(1:2), I, J, L )
+  END FUNCTION MAM_NH4_Fine
+
+  FUNCTION MAM_NH4_Coarse( State_Chm, I, J, L ) RESULT( c )
+    TYPE(ChmState), INTENT(IN) :: State_Chm
+    INTEGER,        INTENT(IN) :: I, J, L
+    REAL(fp)                   :: c
+    IF ( .NOT. isReady ) CALL MAM_Init_Access()
+    c = SumPos( State_Chm, id_NH4(3:3), I, J, L )
+  END FUNCTION MAM_NH4_Coarse
+
+  ! Na+ alone (MAMSSLT is Na+ only in the MOSAIC build). Contrast with
+  ! MAM_SeaSalt_*, which is Na+ + Cl- as the analogue of STD SALA/SALC.
+  FUNCTION MAM_Na_Fine( State_Chm, I, J, L ) RESULT( c )
+    TYPE(ChmState), INTENT(IN) :: State_Chm
+    INTEGER,        INTENT(IN) :: I, J, L
+    REAL(fp)                   :: c
+    IF ( .NOT. isReady ) CALL MAM_Init_Access()
+    c = SumPos( State_Chm, id_SSLT(1:2), I, J, L )
+  END FUNCTION MAM_Na_Fine
+
+  FUNCTION MAM_Na_Coarse( State_Chm, I, J, L ) RESULT( c )
+    TYPE(ChmState), INTENT(IN) :: State_Chm
+    INTEGER,        INTENT(IN) :: I, J, L
+    REAL(fp)                   :: c
+    IF ( .NOT. isReady ) CALL MAM_Init_Access()
+    c = SumPos( State_Chm, id_SSLT(3:3), I, J, L )
+  END FUNCTION MAM_Na_Coarse
+
+  FUNCTION MAM_Cl_Fine( State_Chm, I, J, L ) RESULT( c )
+    TYPE(ChmState), INTENT(IN) :: State_Chm
+    INTEGER,        INTENT(IN) :: I, J, L
+    REAL(fp)                   :: c
+    IF ( .NOT. isReady ) CALL MAM_Init_Access()
+    c = SumPos( State_Chm, id_CL(1:2), I, J, L )
+  END FUNCTION MAM_Cl_Fine
+
+  FUNCTION MAM_Cl_Coarse( State_Chm, I, J, L ) RESULT( c )
+    TYPE(ChmState), INTENT(IN) :: State_Chm
+    INTEGER,        INTENT(IN) :: I, J, L
+    REAL(fp)                   :: c
+    IF ( .NOT. isReady ) CALL MAM_Init_Access()
+    c = SumPos( State_Chm, id_CL(3:3), I, J, L )
+  END FUNCTION MAM_Cl_Coarse
+
+!------------------------------------------------------------------------------
+! MAM coarse sea salt as a MASS-like quantity: sum over Na+ and Cl- of
+! Conc * MW_g, i.e. [Conc units] x [g/mol]. Divide by AIRMW (and apply the
+! usual CVF/AD/AIRVOL factors) to get kg/m3. Replaces STD SALC * MW_SALC where
+! a sea-salt MASS is needed (fullchem_HetDropChem coarse number, 11.24.6).
+!------------------------------------------------------------------------------
+  FUNCTION MAM_SeaSaltMW_Coarse( State_Chm, I, J, L ) RESULT( c )
+    TYPE(ChmState), INTENT(IN) :: State_Chm
+    INTEGER,        INTENT(IN) :: I, J, L
+    REAL(fp)                   :: c
+    IF ( .NOT. isReady ) CALL MAM_Init_Access()
+    c = 0.0_fp
+    IF ( id_SSLT(3) > 0 ) c = c + MAX( State_Chm%Species(id_SSLT(3))%Conc(I,J,L), 0.0_fp ) &
+                                * State_Chm%SpcData(id_SSLT(3))%Info%MW_g
+    IF ( id_CL(3)   > 0 ) c = c + MAX( State_Chm%Species(id_CL(3))%Conc(I,J,L),   0.0_fp ) &
+                                * State_Chm%SpcData(id_CL(3))%Info%MW_g
+  END FUNCTION MAM_SeaSaltMW_Coarse
 
 END MODULE Mam_Gc_Access_Mod

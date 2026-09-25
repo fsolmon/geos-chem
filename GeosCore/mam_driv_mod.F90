@@ -53,7 +53,19 @@ REAL(fp), pointer, public :: H2SO4_RATE(:,:,:) ! H2SO4 prod rate [kg s-1]
 ! options change.
 REAL(fp), PARAMETER :: SS_NA_MF  = 0.385_fp
 REAL(fp), PARAMETER :: SS_SO4_MF = 0.077_fp
-! 
+!
+! FAB: is MAM switched off above the tropopause?
+!   .FALSE. (this branch) - MAM runs at every level: MOSAIC gas-aerosol
+!     exchange, nucleation, renaming and coagulation, and the MAM optics that
+!     feed photolysis and RRTMG, are all active in the stratosphere. The cold
+!     start must then fill the stratospheric boxes as well, otherwise MAM
+!     chemistry runs there on an empty aerosol while GC carries the Junge layer.
+!   .TRUE. (MAM-decouple-std) - MAM is chemically and optically invisible above
+!     the tropopause (UCX owns stratospheric SO4/NIT) and the cold start leaves
+!     those boxes empty.
+! One flag so the two choices cannot drift apart; see MAM/devnotes.md 11.14.5.
+LOGICAL,  PARAMETER :: MAM_STRAT_GATE = .FALSE.
+!
 REAL(fp), pointer, public :: PSO4_SO2MAM(:,:,:)
 !
 
@@ -275,7 +287,8 @@ SUBROUTINE MAM_DRIV( Input_Opt,  State_Chm, State_Diag, &
      ! FAB (cold-start fix, 2026-09-18): MAM_cold_start (namelist
      ! &chem_input) put the surface composition at every level up to the
      ! model top. Overwrite the whole interstitial state from the GC tracers
-     ! of the restart, troposphere only (see MAM_COLDSTART_FROM_GC).
+     ! of the restart; vertical extent follows MAM_STRAT_GATE (see
+     ! MAM_COLDSTART_FROM_GC).
      IF ( mdo_coldstart == 1 ) CALL MAM_COLDSTART_FROM_GC( State_Chm, State_Grid, State_Met )
     ENDIF
 
@@ -631,9 +644,18 @@ END IF
 !  put surface-like sea salt, dust and OA into the stratosphere, where MOSAIC
 !  then released HCl (MAM/devnotes.md section 11.14.4).
 !
-!  Troposphere only: in stratospheric boxes (InStratMeso) all MAM aerosol
-!  starts at zero, since stratospheric SO4/NIT belong to UCX (devnotes
-!  section 11.14.5). Cloud-borne aerosol starts at zero (qqcw is zeroed at
+!  Vertical extent follows MAM_STRAT_GATE (module header):
+!    .FALSE. (here) -- every box is filled from the GC tracers, stratosphere
+!      included, because MAM chemistry and optics are active at every level on
+!      this branch. This does NOT bring back the 11.14.4 contamination: that
+!      came from the namelist *surface* composition being written to the model
+!      top, whereas the GC restart itself carries sea salt and dust 5-10 orders
+!      of magnitude below their surface values above ~100 hPa. What the
+!      stratospheric boxes actually receive is the Junge-layer SO4 (and NIT
+!      where UCX has formed NAT), i.e. the aerosol GC already has there.
+!    .TRUE. -- stratospheric boxes start empty, since SO4/NIT belong to UCX
+!      there (devnotes section 11.14.5).
+!  Cloud-borne aerosol starts at zero in either case (qqcw is zeroed at
 !  allocation).
 !
 !  Mapping, GC tracer mass [kg] -> MAM species:
@@ -717,8 +739,9 @@ END IF
           physta%q(n,L,numptr_amode(m)) = 0.0_r8
        END DO
 
-       ! Stratosphere: MAM aerosol starts empty (UCX owns SO4/NIT there)
-       IF ( State_Met%InStratMeso(I,J,L) ) CYCLE
+       ! Stratosphere: empty only when MAM is gated off there (UCX owns
+       ! SO4/NIT). Ungated, the box is filled like any other.
+       IF ( MAM_STRAT_GATE .AND. State_Met%InStratMeso(I,J,L) ) CYCLE
 
        rAD = 1.0_fp / State_Met%AD(I,J,L)
 
@@ -788,8 +811,15 @@ END IF
 
     Spc => NULL()
 
-    IF ( masterproc ) WRITE(*,*) 'MAM_COLDSTART_FROM_GC: MAM aerosol ' //   &
-         'initialised from GC tracers (troposphere only)'
+    IF ( masterproc ) THEN
+       IF ( MAM_STRAT_GATE ) THEN
+          WRITE(*,*) 'MAM_COLDSTART_FROM_GC: MAM aerosol ' //               &
+               'initialised from GC tracers (troposphere only)'
+       ELSE
+          WRITE(*,*) 'MAM_COLDSTART_FROM_GC: MAM aerosol ' //               &
+               'initialised from GC tracers (all levels, MAM ungated aloft)'
+       ENDIF
+    ENDIF
 
   CONTAINS
 
